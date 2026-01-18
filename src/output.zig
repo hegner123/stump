@@ -69,7 +69,7 @@ pub const JsonWriter = struct {
     current_bytes: u64,
 
     pub fn init(allocator: std.mem.Allocator, output_file: ?[]const u8, byte_limit: ?u64) !JsonWriter {
-        var file: ?std.fs.File = null;
+        const file: ?std.fs.File = null;
 
         // If output_file specified, open file for writing
         if (output_file) |_| {
@@ -79,7 +79,7 @@ pub const JsonWriter = struct {
 
         return JsonWriter{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = std.ArrayList(u8){},
             .file = file,
             .byte_limit = if (output_file == null) byte_limit else null,
             .current_bytes = 0,
@@ -87,7 +87,7 @@ pub const JsonWriter = struct {
     }
 
     pub fn deinit(self: *JsonWriter) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
         if (self.file) |f| {
             f.close();
         }
@@ -133,12 +133,12 @@ pub fn serializeToStdout(
     perf_tracker.startSerialization();
     defer perf_tracker.stopSerialization();
 
-    var buffer = std.ArrayList(u8).init(allocator);
-    errdefer buffer.deinit();
+    var buffer = std.ArrayList(u8){};
+    errdefer buffer.deinit(allocator);
 
-    try writeJson(&buffer, data);
+    try writeJson(allocator, &buffer, data);
 
-    const result = try buffer.toOwnedSlice();
+    const result = try buffer.toOwnedSlice(allocator);
     perf_tracker.recordOutputBytes(result.len);
 
     return result;
@@ -163,13 +163,13 @@ pub fn serializeToFile(
     defer file.close();
 
     // Write JSON to file
-    var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
+    var buffer = std.ArrayList(u8){};
+    defer buffer.deinit(allocator);
 
-    try writeJson(&buffer, data);
+    try writeJson(allocator, &buffer, data);
     try file.writeAll(buffer.items);
 
-    perf_tracker.recordOutputBytes(buffer.items);
+    perf_tracker.recordOutputBytes(buffer.items.len);
 
     // Create success response
     const message = try std.fmt.allocPrint(allocator, "Tree written to {s}", .{unique_filename});
@@ -182,14 +182,14 @@ pub fn serializeToFile(
 }
 
 /// Write JSON to a buffer
-fn writeJson(buffer: *std.ArrayList(u8), data: *const types.OutputData) !void {
-    const writer = buffer.writer();
+fn writeJson(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), data: *const types.OutputData) !void {
+    const writer = buffer.writer(allocator);
 
     try writer.writeAll("{");
 
     // Write root
     try writer.writeAll("\"root\":");
-    try writeJsonString(buffer, data.root);
+    try writeJsonString(allocator, buffer, data.root);
     try writer.writeAll(",");
 
     // Write depth
@@ -215,7 +215,7 @@ fn writeJson(buffer: *std.ArrayList(u8), data: *const types.OutputData) !void {
         if (i > 0) try writer.writeAll(",");
         try writer.writeAll("{");
         try writer.writeAll("\"path\":");
-        try writeJsonString(buffer, entry.path);
+        try writeJsonString(allocator, buffer, entry.path);
         try writer.writeAll(",\"type\":\"");
         try writer.writeAll(entry.type.toString());
         try writer.writeAll("\"");
@@ -232,9 +232,9 @@ fn writeJson(buffer: *std.ArrayList(u8), data: *const types.OutputData) !void {
         for (symlinks, 0..) |symlink, i| {
             if (i > 0) try writer.writeAll(",");
             try writer.writeAll("{\"path\":");
-            try writeJsonString(buffer, symlink.path);
+            try writeJsonString(allocator, buffer, symlink.path);
             try writer.writeAll(",\"target\":");
-            try writeJsonString(buffer, symlink.target);
+            try writeJsonString(allocator, buffer, symlink.target);
             try writer.writeAll("}");
         }
         try writer.writeAll("]");
@@ -248,12 +248,12 @@ fn writeJson(buffer: *std.ArrayList(u8), data: *const types.OutputData) !void {
             try writer.writeAll("{\"type\":\"");
             try writer.writeAll(err.type.toString());
             try writer.writeAll("\",\"path\":");
-            try writeJsonString(buffer, err.path);
+            try writeJsonString(allocator, buffer, err.path);
             try writer.writeAll(",\"message\":");
-            try writeJsonString(buffer, err.message);
+            try writeJsonString(allocator, buffer, err.message);
             if (err.target) |target| {
                 try writer.writeAll(",\"target\":");
-                try writeJsonString(buffer, target);
+                try writeJsonString(allocator, buffer, target);
             }
             try writer.writeAll("}");
         }
@@ -284,15 +284,15 @@ fn writeJson(buffer: *std.ArrayList(u8), data: *const types.OutputData) !void {
     // Write optional _note field
     if (data._note) |note| {
         try writer.writeAll(",\"_note\":");
-        try writeJsonString(buffer, note);
+        try writeJsonString(allocator, buffer, note);
     }
 
     try writer.writeAll("}");
 }
 
 /// Write a JSON-escaped string
-fn writeJsonString(buffer: *std.ArrayList(u8), s: []const u8) !void {
-    const writer = buffer.writer();
+fn writeJsonString(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), s: []const u8) !void {
+    const writer = buffer.writer(allocator);
     try writer.writeAll("\"");
 
     for (s) |c| {
@@ -302,7 +302,7 @@ fn writeJsonString(buffer: *std.ArrayList(u8), s: []const u8) !void {
             '\n' => try writer.writeAll("\\n"),
             '\r' => try writer.writeAll("\\r"),
             '\t' => try writer.writeAll("\\t"),
-            0x00...0x1F => try writer.print("\\u{x:0>4}", .{c}),
+            0x00...0x08, 0x0B...0x0C, 0x0E...0x1F => try writer.print("\\u{x:0>4}", .{c}),
             else => try writer.writeByte(c),
         }
     }
@@ -315,23 +315,23 @@ pub fn serializeFatalError(
     allocator: std.mem.Allocator,
     fatal_error: *const types.FatalError,
 ) ![]u8 {
-    var buffer = std.ArrayList(u8).init(allocator);
-    errdefer buffer.deinit();
+    var buffer = std.ArrayList(u8){};
+    errdefer buffer.deinit(allocator);
 
-    const writer = buffer.writer();
+    const writer = buffer.writer(allocator);
 
     try writer.writeAll("{");
     try writer.writeAll("\"error\":");
-    try writeJsonString(&buffer, fatal_error.error_name);
+    try writeJsonString(allocator, &buffer, fatal_error.error_name);
     try writer.writeAll(",\"type\":\"");
     try writer.writeAll(fatal_error.type.toString());
     try writer.writeAll("\",\"path\":");
-    try writeJsonString(&buffer, fatal_error.path);
+    try writeJsonString(allocator, &buffer, fatal_error.path);
     try writer.writeAll(",\"message\":");
-    try writeJsonString(&buffer, fatal_error.message);
+    try writeJsonString(allocator, &buffer, fatal_error.message);
     try writer.writeAll("}");
 
-    return try buffer.toOwnedSlice();
+    return try buffer.toOwnedSlice(allocator);
 }
 
 /// Serialize token limit exceeded error to JSON
@@ -341,10 +341,10 @@ pub fn serializeTokenLimitError(
     aborted_at: u64,
     token_limit: u64,
 ) ![]u8 {
-    var buffer = std.ArrayList(u8).init(allocator);
-    errdefer buffer.deinit();
+    var buffer = std.ArrayList(u8){};
+    errdefer buffer.deinit(allocator);
 
-    const writer = buffer.writer();
+    const writer = buffer.writer(allocator);
 
     try writer.writeAll("{");
     try writer.writeAll("\"error\":\"Token limit exceeded\",");
@@ -359,7 +359,7 @@ pub fn serializeTokenLimitError(
     try writer.print("\"token_limit\":{d}", .{token_limit});
     try writer.writeAll("}}");
 
-    return try buffer.toOwnedSlice();
+    return try buffer.toOwnedSlice(allocator);
 }
 
 test "generateUUID" {
@@ -422,8 +422,8 @@ test "calculateByteLimit" {
 test "writeJsonString" {
     const allocator = std.testing.allocator;
 
-    var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
+    var buffer = std.ArrayList(u8){};
+    defer buffer.deinit(allocator);
 
     try writeJsonString(&buffer, "hello \"world\"");
     try std.testing.expectEqualStrings("\"hello \\\"world\\\"\"", buffer.items);

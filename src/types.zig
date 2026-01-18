@@ -47,27 +47,39 @@ pub const SymlinkInfo = struct {
 
 /// Error type enumeration
 pub const ErrorType = enum {
+    // Fatal errors (block execution unless force: true)
+    large_directory,
+    non_utf8_filename,
+    symlink_cycle,
+
+    // Non-fatal errors (collected and reported)
     permission_denied,
     invalid_symlink,
     path_too_long,
-    non_utf8_filename,
-    large_directory,
-    symlink_cycle,
+    unreadable_file,
     token_limit_exceeded,
-    io_error,
-    other,
+    invalid_input,
+    unknown_error,
+
+    pub fn isFatal(self: ErrorType) bool {
+        return switch (self) {
+            .large_directory, .non_utf8_filename, .symlink_cycle => true,
+            else => false,
+        };
+    }
 
     pub fn toString(self: ErrorType) []const u8 {
         return switch (self) {
+            .large_directory => "large_directory",
+            .non_utf8_filename => "non_utf8_filename",
+            .symlink_cycle => "symlink_cycle",
             .permission_denied => "permission_denied",
             .invalid_symlink => "invalid_symlink",
             .path_too_long => "path_too_long",
-            .non_utf8_filename => "non_utf8_filename",
-            .large_directory => "large_directory",
-            .symlink_cycle => "symlink_cycle",
+            .unreadable_file => "unreadable_file",
             .token_limit_exceeded => "token_limit_exceeded",
-            .io_error => "io_error",
-            .other => "other",
+            .invalid_input => "invalid_input",
+            .unknown_error => "unknown_error",
         };
     }
 };
@@ -78,6 +90,33 @@ pub const ErrorEntry = struct {
     path: []const u8,
     message: []const u8,
     target: ?[]const u8 = null, // Only for symlink-related errors
+
+    pub fn init(err_type: ErrorType, path: []const u8, message: []const u8) ErrorEntry {
+        return .{
+            .type = err_type,
+            .path = path,
+            .message = message,
+        };
+    }
+
+    pub fn initWithTarget(err_type: ErrorType, path: []const u8, target: []const u8, message: []const u8) ErrorEntry {
+        return .{
+            .type = err_type,
+            .path = path,
+            .message = message,
+            .target = target,
+        };
+    }
+
+    pub fn initAlloc(err_type: ErrorType, path: []const u8, message: []const u8, allocator: std.mem.Allocator) !ErrorEntry {
+        const path_copy = try allocator.dupe(u8, path);
+        const msg_copy = try allocator.dupe(u8, message);
+        return .{
+            .type = err_type,
+            .path = path_copy,
+            .message = msg_copy,
+        };
+    }
 
     pub fn deinit(self: *ErrorEntry, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
@@ -227,6 +266,22 @@ pub const FatalError = struct {
     path: []const u8,
     message: []const u8,
 
+    pub fn init(err_type: ErrorType, path: []const u8, message: []const u8) FatalError {
+        const error_name = switch (err_type) {
+            .large_directory => "Large directory detected",
+            .non_utf8_filename => "Invalid filename encoding",
+            .symlink_cycle => "Symlink cycle detected",
+            else => "Fatal error",
+        };
+
+        return .{
+            .error_name = error_name,
+            .type = err_type,
+            .path = path,
+            .message = message,
+        };
+    }
+
     pub fn deinit(self: *FatalError, allocator: std.mem.Allocator) void {
         allocator.free(self.error_name);
         allocator.free(self.path);
@@ -277,9 +332,9 @@ pub const TraversalState = struct {
             .allocator = allocator,
             .config = config,
             .stats = Stats{},
-            .tree_entries = std.ArrayList(TreeEntry).init(allocator),
-            .symlinks = std.ArrayList(SymlinkInfo).init(allocator),
-            .errors = std.ArrayList(ErrorEntry).init(allocator),
+            .tree_entries = std.ArrayList(TreeEntry){},
+            .symlinks = std.ArrayList(SymlinkInfo){},
+            .errors = std.ArrayList(ErrorEntry){},
             .visited_paths = null,
             .current_byte_count = 0,
             .performance = PerformanceMetrics{},
@@ -297,17 +352,17 @@ pub const TraversalState = struct {
         for (self.tree_entries.items) |*entry| {
             entry.deinit(self.allocator);
         }
-        self.tree_entries.deinit();
+        self.tree_entries.deinit(self.allocator);
 
         for (self.symlinks.items) |*symlink| {
             symlink.deinit(self.allocator);
         }
-        self.symlinks.deinit();
+        self.symlinks.deinit(self.allocator);
 
         for (self.errors.items) |*err| {
             err.deinit(self.allocator);
         }
-        self.errors.deinit();
+        self.errors.deinit(self.allocator);
 
         if (self.visited_paths) |*visited| {
             visited.deinit();

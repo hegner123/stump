@@ -1,4 +1,5 @@
 const std = @import("std");
+const types = @import("types.zig");
 
 /// Error type enum for categorization
 pub const ErrorType = enum {
@@ -89,36 +90,36 @@ pub const FatalError = struct {
 };
 
 /// Build fatal error message for large directory
-pub fn buildLargeDirectoryError(allocator: std.mem.Allocator, path: []const u8) !FatalError {
+pub fn buildLargeDirectoryError(allocator: std.mem.Allocator, path: []const u8) !types.FatalError {
     const message = try std.fmt.allocPrint(
         allocator,
         "Refusing to traverse large directory that may contain thousands of files. Recommendations: (1) Use 'depth' parameter to limit traversal, (2) Use filters to reduce scope, (3) Use 'output_file' to save results, or (4) Set 'force: true' to proceed anyway.",
         .{},
     );
 
-    return FatalError.init(.large_directory, path, message);
+    return types.FatalError.init(.large_directory, path, message);
 }
 
 /// Build fatal error message for non-UTF8 filename
-pub fn buildNonUtf8Error(allocator: std.mem.Allocator, path: []const u8) !FatalError {
+pub fn buildNonUtf8Error(allocator: std.mem.Allocator, path: []const u8) !types.FatalError {
     const message = try std.fmt.allocPrint(
         allocator,
         "Encountered filename with invalid UTF-8 encoding. This may indicate a legacy file, corrupted filesystem, or unusual naming. Use 'force: true' to skip this file and continue.",
         .{},
     );
 
-    return FatalError.init(.non_utf8_filename, path, message);
+    return types.FatalError.init(.non_utf8_filename, path, message);
 }
 
 /// Build fatal error message for symlink cycle
-pub fn buildSymlinkCycleError(allocator: std.mem.Allocator, path: []const u8) !FatalError {
+pub fn buildSymlinkCycleError(allocator: std.mem.Allocator, path: []const u8) !types.FatalError {
     const message = try std.fmt.allocPrint(
         allocator,
         "Detected symlink cycle at this path. This would cause infinite traversal. Use 'force: true' to skip this symlink and continue, or disable 'follow_symlinks'.",
         .{},
     );
 
-    return FatalError.init(.symlink_cycle, path, message);
+    return types.FatalError.init(.symlink_cycle, path, message);
 }
 
 /// Build token limit exceeded error
@@ -180,25 +181,25 @@ pub fn isValidUtf8(bytes: []const u8) bool {
 }
 
 /// Create a non-fatal error entry for permission denied
-pub fn createPermissionDeniedError(allocator: std.mem.Allocator, path: []const u8) !ErrorEntry {
+pub fn createPermissionDeniedError(allocator: std.mem.Allocator, path: []const u8) !types.ErrorEntry {
     const msg = try permissionDeniedMessage(allocator, path);
-    return ErrorEntry.init(.permission_denied, path, msg);
+    return types.ErrorEntry.init(.permission_denied, path, msg);
 }
 
 /// Create a non-fatal error entry for invalid symlink
-pub fn createInvalidSymlinkError(allocator: std.mem.Allocator, path: []const u8, target: []const u8) !ErrorEntry {
+pub fn createInvalidSymlinkError(allocator: std.mem.Allocator, path: []const u8, target: []const u8) !types.ErrorEntry {
     const msg = try invalidSymlinkMessage(allocator, target);
-    return ErrorEntry.initWithTarget(.invalid_symlink, path, target, msg);
+    return types.ErrorEntry.initWithTarget(.invalid_symlink, path, target, msg);
 }
 
 /// Create a non-fatal error entry for path too long
-pub fn createPathTooLongError(allocator: std.mem.Allocator, path: []const u8) !ErrorEntry {
+pub fn createPathTooLongError(allocator: std.mem.Allocator, path: []const u8) !types.ErrorEntry {
     const msg = try pathTooLongMessage(allocator);
-    return ErrorEntry.init(.path_too_long, path, msg);
+    return types.ErrorEntry.init(.path_too_long, path, msg);
 }
 
 /// Create a non-fatal error entry for unreadable file
-pub fn createUnreadableFileError(allocator: std.mem.Allocator, path: []const u8) !ErrorEntry {
+pub fn createUnreadableFileError(allocator: std.mem.Allocator, path: []const u8) !types.ErrorEntry {
     const msg = try unreadableFileMessage(allocator);
-    return ErrorEntry.init(.unreadable_file, path, msg);
+    return types.ErrorEntry.init(.unreadable_file, path, msg);
 }

@@ -17,17 +17,17 @@ pub fn isSymlink(path: []const u8) !bool {
 /// Caller owns returned memory
 pub fn resolveTarget(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     // Use readlink to get the target path
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     const target = try std.fs.cwd().readLink(path, &buf);
     return try allocator.dupe(u8, target);
 }
 
 /// Get device and inode for a path (for cycle detection)
 pub fn getDeviceInode(path: []const u8) !types.VisitedPath {
-    const stat_info = try std.fs.cwd().statFile(path);
+    const stat_info = try std.posix.fstatat(std.posix.AT.FDCWD, path, 0);
     return types.VisitedPath{
-        .dev = stat_info.dev,
-        .ino = stat_info.ino,
+        .dev = @intCast(stat_info.dev),
+        .ino = @intCast(stat_info.ino),
     };
 }
 
@@ -60,7 +60,7 @@ pub fn detectSymlink(
 
     // If not following symlinks, record and skip
     if (!state.config.follow_symlinks) {
-        const target = resolveTarget(state.allocator, path) catch |err| {
+        const target = resolveTarget(state.allocator, path) catch {
             // Broken symlink - record as error
             const path_copy = try state.allocator.dupe(u8, relative_path);
             const error_entry = try errors.createInvalidSymlinkError(
@@ -68,7 +68,7 @@ pub fn detectSymlink(
                 path_copy,
                 "",
             );
-            try state.errors.append(error_entry);
+            try state.errors.append(state.allocator, error_entry);
             return true; // Skip this symlink
         };
         errdefer state.allocator.free(target);
@@ -81,7 +81,7 @@ pub fn detectSymlink(
             .target = target,
         };
 
-        try state.symlinks.append(symlink_info);
+        try state.symlinks.append(state.allocator, symlink_info);
         return true; // Skip traversal of this symlink
     }
 
@@ -111,7 +111,7 @@ pub fn handleSymlinkFollow(
     }
 
     // Resolve the target to get its canonical path
-    const target = resolveTarget(state.allocator, path) catch |err| {
+    const target = resolveTarget(state.allocator, path) catch {
         // Broken symlink - record as non-fatal error and skip
         const path_copy = try state.allocator.dupe(u8, relative_path);
         const error_entry = try errors.createInvalidSymlinkError(
@@ -119,13 +119,13 @@ pub fn handleSymlinkFollow(
             path_copy,
             "",
         );
-        try state.errors.append(error_entry);
+        try state.errors.append(state.allocator, error_entry);
         return true; // Skip this symlink
     };
     defer state.allocator.free(target);
 
     // Build the full path to the target (handle relative symlinks)
-    var target_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var target_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const target_path = if (std.fs.path.isAbsolute(target)) blk: {
         break :blk target;
     } else blk: {
@@ -153,13 +153,13 @@ pub fn handleSymlinkFollow(
                 "Symlink cycle detected: {s} -> {s}",
                 .{ relative_path, target },
             );
-            const error_entry = errors.ErrorEntry.initWithTarget(
+            const error_entry = types.ErrorEntry.initWithTarget(
                 .symlink_cycle,
                 path_copy,
                 target_copy,
                 msg,
             );
-            try state.errors.append(error_entry);
+            try state.errors.append(state.allocator, error_entry);
             return true; // Skip this symlink
         }
 
@@ -188,7 +188,7 @@ pub fn trackSymlink(
         .target = target,
     };
 
-    try state.symlinks.append(symlink_info);
+    try state.symlinks.append(state.allocator, symlink_info);
     state.stats.symlinks += 1;
 }
 
@@ -204,7 +204,7 @@ pub fn targetExists(target_path: []const u8) bool {
 /// This resolves all symlinks in the path to get the final destination
 /// Caller owns returned memory
 pub fn getCanonicalPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     const real_path = try std.fs.cwd().realpath(path, &buf);
     return try allocator.dupe(u8, real_path);
 }
