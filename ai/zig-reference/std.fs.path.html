@@ -1,0 +1,514 @@
+<html><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>std.fs.path - Zig Documentation</title>
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
+    <style type="text/css">
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+        color: #000000;
+      }
+      .hidden {
+        display: none;
+      }
+      table {
+        width: 100%;
+      }
+      a {
+        color: #2A6286;
+      }
+      pre{
+        font-family:"Source Code Pro",monospace;
+        font-size:1em;
+        background-color:#F5F5F5;
+        padding: 1em;
+        margin: 0;
+        overflow-x: auto;
+      }
+      :not(pre) > code {
+        white-space: break-spaces;
+      }
+      code {
+        font-family:"Source Code Pro",monospace;
+        font-size: 0.9em;
+      }
+      code a {
+        color: #000000;
+      }
+      #listFields > div, #listParams > div {
+        margin-bottom: 1em;
+      }
+      #hdrName a {
+        font-size: 0.7em;
+        padding-left: 1em;
+      }
+      .fieldDocs {
+        border: 1px solid #F5F5F5;
+        border-top: 0px;
+        padding: 1px 1em;
+      }
+
+      #logo {
+        width: 8em;
+        padding: 0.5em 1em;
+      }
+
+      #navWrap {
+        width: -moz-available;
+        width: -webkit-fill-available;
+        width: stretch;
+        margin-left: 11em;
+      }
+
+      #search {
+        width: 100%;
+      }
+
+      nav {
+        width: 10em;
+        float: left;
+      }
+      nav h2 {
+        font-size: 1.2em;
+        text-decoration: underline;
+        margin: 0;
+        padding: 0.5em 0;
+        text-align: center;
+      }
+      nav p {
+        margin: 0;
+        padding: 0;
+        text-align: center;
+      }
+      section {
+        clear: both;
+        padding-top: 1em;
+      }
+      section h1 {
+        border-bottom: 1px dashed;
+        margin: 0 0;
+      }
+      section h2 {
+        font-size: 1.3em;
+        margin: 0.5em 0;
+        padding: 0;
+        border-bottom: 1px solid;
+      }
+      #listNav {
+        list-style-type: none;
+        margin: 0.5em 0 0 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #f1f1f1;
+      }
+      #listNav li {
+        float:left;
+      }
+      #listNav li a {
+        display: block;
+        color: #000;
+        text-align: center;
+        padding: .5em .8em;
+        text-decoration: none;
+      }
+      #listNav li a:hover {
+        background-color: #555;
+        color: #fff;
+      }
+      #listNav li a.active {
+        background-color: #FFBB4D;
+        color: #000;
+      }
+
+      #helpDialog {
+        width: 21em;
+        height: 21em;
+        position: fixed;
+        top: 0;
+        left: 0;
+        background-color: #333;
+        color: #fff;
+        border: 1px solid #fff;
+      }
+      #helpDialog h1 {
+        text-align: center;
+        font-size: 1.5em;
+      }
+      #helpDialog dt, #helpDialog dd {
+        display: inline;
+        margin: 0 0.2em;
+      }
+      kbd {
+        color: #000;
+        background-color: #fafbfc;
+        border-color: #d1d5da;
+        border-bottom-color: #c6cbd1;
+        box-shadow-color: #c6cbd1;
+        display: inline-block;
+        padding: 0.3em 0.2em;
+        font: 1.2em monospace;
+        line-height: 0.8em;
+        vertical-align: middle;
+        border: solid 1px;
+        border-radius: 3px;
+        box-shadow: inset 0 -1px 0;
+        cursor: default;
+      }
+
+      #errors {
+        background-color: #faa;
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        max-height: min(20em, 50vh);
+        padding: 0.5em;
+        overflow: auto;
+      }
+      #errors h1 {
+        font-size: 1.5em;
+      }
+      #errors pre {
+        background-color: #fcc;
+      }
+
+      #listSearchResults li.selected {
+        background-color: #93e196;
+      }
+
+      #tableFnErrors dt {
+        font-weight: bold;
+      }
+
+      dl > div {
+          padding: 0.5em;
+          border: 1px solid #c0c0c0;
+          margin-top: 0.5em;
+      }
+
+      td, th {
+        text-align: unset;
+        vertical-align: top;
+        margin: 0;
+        padding: 0.5em;
+        max-width: 20em;
+        text-overflow: ellipsis;
+        overflow-x: hidden;
+      }
+
+      ul.columns {
+        column-width: 20em;
+      }
+
+      .tok-kw {
+          color: #333;
+          font-weight: bold;
+      }
+      .tok-str {
+          color: #d14;
+      }
+      .tok-builtin {
+          color: #0086b3;
+      }
+      .tok-comment {
+          color: #777;
+          font-style: italic;
+      }
+      .tok-fn {
+          color: #900;
+          font-weight: bold;
+      }
+      .tok-null {
+          color: #008080;
+      }
+      .tok-number {
+          color: #008080;
+      }
+      .tok-type {
+          color: #458;
+          font-weight: bold;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #111;
+          color: #bbb;
+        }
+        pre {
+          background-color: #222;
+          color: #ccc;
+        }
+        a {
+          color: #88f;
+        }
+        code a {
+          color: #ccc;
+        }
+        .fieldDocs {
+          border-color:#2A2A2A;
+        }
+        #listNav {
+          background-color: #333;
+        }
+        #listNav li a {
+          color: #fff;
+        }
+        #listNav li a:hover {
+          background-color: #555;
+          color: #fff;
+        }
+        #listNav li a.active {
+          background-color: #FFBB4D;
+          color: #000;
+        }
+        #listSearchResults li.selected {
+          background-color: #000;
+        }
+        #listSearchResults li.selected a {
+          color: #fff;
+        }
+        #errors {
+          background-color: #800;
+          color: #fff;
+        }
+        #errors pre {
+          background-color: #a00;
+          color: #fff;
+        }
+        dl > div {
+          border-color: #373737;
+        }
+        .tok-kw {
+            color: #eee;
+        }
+        .tok-str {
+            color: #2e5;
+        }
+        .tok-builtin {
+            color: #ff894c;
+        }
+        .tok-comment {
+            color: #aa7;
+        }
+        .tok-fn {
+            color: #B1A0F8;
+        }
+        .tok-null {
+            color: #ff8080;
+        }
+        .tok-number {
+            color: #ff8080;
+        }
+        .tok-type {
+            color: #68f;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a class="logo" href="#">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
+        <g fill="#F7A41D">
+          <g>
+            <polygon points="46,22 28,44 19,30"></polygon>
+            <polygon points="46,22 33,33 28,44 22,44 22,95 31,95 20,100 12,117 0,117 0,22" shape-rendering="crispEdges"></polygon>
+            <polygon points="31,95 12,117 4,106"></polygon>
+          </g>
+          <g>
+            <polygon points="56,22 62,36 37,44"></polygon>
+            <polygon points="56,22 111,22 111,44 37,44 56,32" shape-rendering="crispEdges"></polygon>
+            <polygon points="116,95 97,117 90,104"></polygon>
+            <polygon points="116,95 100,104 97,117 42,117 42,95" shape-rendering="crispEdges"></polygon>
+            <polygon points="150,0 52,117 3,140 101,22"></polygon>
+          </g>
+          <g>
+            <polygon points="141,22 140,40 122,45"></polygon>
+            <polygon points="153,22 153,117 106,117 120,105 125,95 131,95 131,45 122,45 132,36 141,22" shape-rendering="crispEdges"></polygon>
+            <polygon points="125,95 130,110 106,117"></polygon>
+          </g>
+        </g>
+        <style>
+        #text { fill: #121212 }
+        @media (prefers-color-scheme: dark) { #text { fill: #f2f2f2 } }
+        </style>
+        <g id="text">
+          <g>
+            <polygon points="260,22 260,37 229,40 177,40 177,22" shape-rendering="crispEdges"></polygon>
+            <polygon points="260,37 207,99 207,103 176,103 229,40 229,37"></polygon>
+            <polygon points="261,99 261,117 176,117 176,103 206,99" shape-rendering="crispEdges"></polygon>
+          </g>
+          <rect x="272" y="22" shape-rendering="crispEdges" width="22" height="95"></rect>
+          <g>
+            <polygon points="394,67 394,106 376,106 376,81 360,70 346,67" shape-rendering="crispEdges"></polygon>
+            <polygon points="360,68 376,81 346,67"></polygon>
+            <path d="M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1    c14.3,0,29.2,5.5,38.9,14l-13,15c-7.1-6.3-16.8-10-25.9-10c-17,0-30.2,12.9-30.2,29.5c0,16.8,13.3,29.6,30.3,29.6    c5.7,0,12.8-2.3,19-5.5L394,106z"></path>
+          </g>
+        </g>
+        </svg>
+      </a>
+    </nav>
+    <div id="navWrap">
+      <input type="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
+      <div id="sectNav" class=""><ul id="listNav"><li><a href="#std">std</a></li><li><a href="#std.fs">fs</a></li><li><a href="#std.fs.path" class="active">path</a></li></ul></div>
+    </div>
+    <section>
+    <p id="status" class="hidden">Loading...</p>
+    <h1 id="hdrName" class=""><span>struct</span><a href="#src/std/fs/path.zig">[src]</a></h1>
+    <div id="fnProto" class="hidden">
+      <pre><code id="fnProtoCode"></code></pre>
+    </div>
+    <div id="tldDocs" class=""><p>POSIX paths are arbitrary sequences of <code>u8</code> with no particular encoding.</p>
+<p>Windows paths are arbitrary sequences of <code>u16</code> (WTF-16).
+For cross-platform APIs that deal with sequences of <code>u8</code>, Windows
+paths are encoded by Zig as <a href="https://wtf-8.codeberg.page/">WTF-8</a>.
+WTF-8 is a superset of UTF-8 that allows encoding surrogate codepoints,
+which enables lossless roundtripping when converting to/from WTF-16
+(as long as the WTF-8 encoded surrogate codepoints do not form a pair).</p>
+<p>WASI paths are sequences of valid Unicode scalar values,
+which means that WASI is unable to handle paths that cannot be
+encoded as well-formed UTF-8/UTF-16.
+<a href="https://github.com/WebAssembly/wasi-filesystem/issues/17#issuecomment-1430639353">https://github.com/WebAssembly/wasi-filesystem/issues/17#issuecomment-1430639353</a></p>
+</div>
+    <div id="sectParams" class="hidden">
+      <h2>Parameters</h2>
+      <div id="listParams">
+      </div>
+    </div>
+    <div id="sectFnErrors" class="hidden">
+      <h2>Errors</h2>
+      <div id="fnErrorsAnyError" class="hidden">
+        <p><span class="tok-type">anyerror</span> means the error set is known only at runtime.</p>
+      </div>
+      <div id="tableFnErrors" class="hidden"><dl id="listFnErrors"></dl></div>
+    </div>
+    <div id="sectSearchResults" class="hidden">
+      <h2>Search Results</h2>
+      <ul id="listSearchResults"></ul>
+    </div>
+    <div id="sectSearchNoResults" class="hidden">
+      <h2>No Results Found</h2>
+      <p>Press escape to exit search and then '?' to see more options.</p>
+    </div>
+    <div id="sectFields" class="hidden">
+      <h2>Fields</h2>
+      <div id="listFields">
+      </div>
+    </div>
+    <div id="sectTypes" class="">
+      <h2>Types</h2>
+      <ul id="listTypes" class="columns">
+      <li><a href="#std.fs.path.ComponentIterator">ComponentIterator</a></li><li><a href="#std.fs.path.NativeComponentIterator">NativeComponentIterator</a></li><li><a href="#std.fs.path.PathType">PathType</a></li><li><a href="#std.fs.path.Win32PathType">Win32PathType</a></li><li><a href="#std.fs.path.WindowsPath">WindowsPath</a></li><li><a href="#std.fs.path.WindowsPath2">WindowsPath2</a></li></ul>
+    </div>
+    <div id="sectNamespaces" class="hidden">
+      <h2>Namespaces</h2>
+      <ul id="listNamespaces" class="columns">
+      </ul>
+    </div>
+    <div id="sectGlobalVars" class="hidden">
+      <h2>Global Variables</h2>
+      <table>
+        <tbody id="listGlobalVars">
+        </tbody>
+      </table>
+    </div>
+    <div id="sectValues" class="">
+      <h2>Values</h2>
+      <table>
+        <tbody id="listValues">
+        <tr><td><a href="#std.fs.path.delimiter">delimiter</a></td><td></td><td></td></tr><tr><td><a href="#std.fs.path.delimiter_posix">delimiter_posix</a></td><td><code><span class="tok-type">u8</span></code></td><td></td></tr><tr><td><a href="#std.fs.path.delimiter_windows">delimiter_windows</a></td><td><code><span class="tok-type">u8</span></code></td><td></td></tr><tr><td><a href="#std.fs.path.sep">sep</a></td><td></td><td></td></tr><tr><td><a href="#std.fs.path.sep_posix">sep_posix</a></td><td><code><span class="tok-type">u8</span></code></td><td></td></tr><tr><td><a href="#std.fs.path.sep_str">sep_str</a></td><td></td><td></td></tr><tr><td><a href="#std.fs.path.sep_str_posix">sep_str_posix</a></td><td></td><td></td></tr><tr><td><a href="#std.fs.path.sep_str_windows">sep_str_windows</a></td><td></td><td></td></tr><tr><td><a href="#std.fs.path.sep_windows">sep_windows</a></td><td><code><span class="tok-type">u8</span></code></td><td></td></tr></tbody>
+      </table>
+    </div>
+    <div id="sectFns" class="">
+      <h2>Functions</h2>
+      <dl id="listFns">
+      <div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.basename">basename</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) []<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.basenamePosix">basenamePosix</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) []<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.basenameWindows">basenameWindows</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) []<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.componentIterator">componentIterator</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std.fs.path.NativeComponentIterator">NativeComponentIterator</a></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.dirname">dirname</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) ?[]<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd><p>Strip the last component from a file path.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.dirnamePosix">dirnamePosix</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) ?[]<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.dirnameWindows">dirnameWindows</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) ?[]<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.diskDesignator">diskDesignator</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) []<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd><p>Deprecated; use <code><a href="#std.fs.path.parsePath">parsePath</a></code></p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.diskDesignatorWindows">diskDesignatorWindows</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) []<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd><p>Deprecated; use <code><a href="#std.fs.path.parsePathWindows">parsePathWindows</a></code></p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.extension">extension</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) []<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd><p>Searches for a file extension separated by a <code>.</code> and returns the string after that <code>.</code>.
+Files that end or start with <code>.</code> and have no other <code>.</code> in their name
+are considered to have no extension, in which case this returns "".
+Examples:</p>
+<ul>
+<li><code>"main.zig"</code>      ⇒ <code>".zig"</code></li>
+<li><code>"src/main.zig"</code>  ⇒ <code>".zig"</code></li>
+<li><code>".gitignore"</code>    ⇒ <code>""</code></li>
+<li><code>".image.png"</code>    ⇒ <code>".png"</code></li>
+<li><code>"keep."</code>         ⇒ <code>"."</code></li>
+<li><code>"src.keep.me"</code>   ⇒ <code>".me"</code></li>
+<li><code>"/src/keep.me"</code>  ⇒ <code>".me"</code></li>
+<li><code>"/src/keep.me/"</code> ⇒ <code>".me"</code>
+The returned slice is guaranteed to have its pointer within the start and end
+pointer address range of <code>path</code>, even if it is length zero.</li>
+</ul>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.fmtJoin">fmtJoin</a>(paths: []<span class="tok-kw">const</span> []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std">std</a>.<a href="#std.fmt">fmt</a>.<a href="#std.fmt.Alt">Alt</a>([]<span class="tok-kw">const</span> []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, <a href="#std.fs.path.formatJoin">formatJoin</a>)</code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.unicode.fmtUtf16Le">fmtUtf16Le</a>(utf16le: []<span class="tok-kw">const</span> <span class="tok-type">u16</span>) <a href="#std">std</a>.<a href="#std.fmt">fmt</a>.<a href="#std.fmt.Alt">Alt</a>([]<span class="tok-kw">const</span> <span class="tok-type">u16</span>, <a href="#std.unicode.formatUtf16Le">formatUtf16Le</a>)</code></dt><dd><p>Return a Formatter for a (potentially ill-formed) UTF-16 LE string,
+which will be converted to UTF-8 during formatting.
+Unpaired surrogates are replaced by the replacement character (U+FFFD).</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.unicode.fmtUtf8">fmtUtf8</a>(utf8: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std">std</a>.<a href="#std.fmt">fmt</a>.<a href="#std.fmt.Alt">Alt</a>([]<span class="tok-kw">const</span> <span class="tok-type">u8</span>, <a href="#std.unicode.formatUtf8">formatUtf8</a>)</code></dt><dd><p>Return a Formatter for a (potentially ill-formed) UTF-8 string.
+Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
+according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
+the Unicode standard, and as specified by <a href="https://encoding.spec.whatwg.org/#utf-8-decoder">https://encoding.spec.whatwg.org/#utf-8-decoder</a></p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.getWin32PathType">getWin32PathType</a>(<span class="tok-kw">comptime</span> T: <span class="tok-type">type</span>, path: []<span class="tok-kw">const</span> T) <a href="#std.fs.path.Win32PathType">Win32PathType</a></code></dt><dd><p>Get the path type of a Win32 namespace path.
+Similar to <code>RtlDetermineDosPathNameType_U</code>.
+If <code>T</code> is <code>u16</code>, then <code>path</code> should be encoded as WTF-16LE.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isAbsolute">isAbsolute</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <span class="tok-type">bool</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isAbsolutePosix">isAbsolutePosix</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <span class="tok-type">bool</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isAbsolutePosixZ">isAbsolutePosixZ</a>(path_c: [*:<span class="tok-number">0</span>]<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <span class="tok-type">bool</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isAbsoluteWindows">isAbsoluteWindows</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <span class="tok-type">bool</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isAbsoluteWindowsW">isAbsoluteWindowsW</a>(path_w: [*:<span class="tok-number">0</span>]<span class="tok-kw">const</span> <span class="tok-type">u16</span>) <span class="tok-type">bool</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isAbsoluteWindowsWtf16">isAbsoluteWindowsWtf16</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u16</span>) <span class="tok-type">bool</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isAbsoluteWindowsZ">isAbsoluteWindowsZ</a>(path_c: [*:<span class="tok-number">0</span>]<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <span class="tok-type">bool</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isAbsoluteZ">isAbsoluteZ</a>(path_c: [*:<span class="tok-number">0</span>]<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <span class="tok-type">bool</span></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.isSep">isSep</a>(byte: <span class="tok-type">u8</span>) <span class="tok-type">bool</span></code></dt><dd><p>Returns if the given byte is a valid path separator</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.join">join</a>(allocator: <a href="#std.mem.Allocator">Allocator</a>, paths: []<span class="tok-kw">const</span> []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) ![]<span class="tok-type">u8</span></code></dt><dd><p>Naively combines a series of paths with the native path separator.
+Allocates memory for the result, which must be freed by the caller.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.joinZ">joinZ</a>(allocator: <a href="#std.mem.Allocator">Allocator</a>, paths: []<span class="tok-kw">const</span> []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) ![:<span class="tok-number">0</span>]<span class="tok-type">u8</span></code></dt><dd><p>Naively combines a series of paths with the native path separator and null terminator.
+Allocates memory for the result, which must be freed by the caller.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.parsePath">parsePath</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <span class="tok-kw">switch</span> (<a href="#std.fs.path.native_os">native_os</a>) { .windows =&gt; <a href="#std.fs.path.WindowsPath2">WindowsPath2</a>(<span class="tok-type">u8</span>), <span class="tok-kw">else</span> =&gt; <a href="#std.fs.path.PosixPath">PosixPath</a>, }</code></dt><dd><p>On Windows, this calls <code><a href="#std.fs.path.parsePathWindows">parsePathWindows</a></code> and on POSIX it calls <code><a href="#std.fs.path.parsePathPosix">parsePathPosix</a></code>.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.parsePathPosix">parsePathPosix</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std.fs.path.PosixPath">PosixPath</a></code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.parsePathWindows">parsePathWindows</a>(<span class="tok-kw">comptime</span> T: <span class="tok-type">type</span>, path: []<span class="tok-kw">const</span> T) <a href="#std.fs.path.WindowsPath2">WindowsPath2</a>(T)</code></dt><dd></dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.relative">relative</a>( gpa: <a href="#std.mem.Allocator">Allocator</a>, cwd: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, environ_map: ?*<span class="tok-kw">const</span> <a href="#std">std</a>.<a href="#std.process">process</a>.<a href="#std.process.Environ">Environ</a>.<a href="#std.process.Environ.Map">Map</a>, from: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, to: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, ) <a href="#std.mem.Allocator">Allocator</a>.<a href="#std.mem.Allocator.Error">Error</a>![]<span class="tok-type">u8</span></code></dt><dd><p>Returns the non-absolute path from <code>from</code> to <code>to</code>.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.relativePosix">relativePosix</a>(allocator: <a href="#std.mem.Allocator">Allocator</a>, cwd: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, from: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, to: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std.mem.Allocator">Allocator</a>.<a href="#std.mem.Allocator.Error">Error</a>![]<span class="tok-type">u8</span></code></dt><dd><p>Returns the non-absolute path from <code>from</code> to <code>to</code> according to Windows rules.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.relativeWindows">relativeWindows</a>( gpa: <a href="#std.mem.Allocator">Allocator</a>, cwd: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, environ_map: ?*<span class="tok-kw">const</span> <a href="#std">std</a>.<a href="#std.process">process</a>.<a href="#std.process.Environ">Environ</a>.<a href="#std.process.Environ.Map">Map</a>, from: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, to: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>, ) <a href="#std.mem.Allocator">Allocator</a>.<a href="#std.mem.Allocator.Error">Error</a>![]<span class="tok-type">u8</span></code></dt><dd><p>Returns the non-absolute path from <code>from</code> to <code>to</code> according to Windows rules.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.resolve">resolve</a>(allocator: <a href="#std.mem.Allocator">Allocator</a>, paths: []<span class="tok-kw">const</span> []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std.mem.Allocator">Allocator</a>.<a href="#std.mem.Allocator.Error">Error</a>![]<span class="tok-type">u8</span></code></dt><dd><p>On Windows, this calls <code><a href="#std.fs.path.resolveWindows">resolveWindows</a></code> and on POSIX it calls <code><a href="#std.fs.path.resolvePosix">resolvePosix</a></code>.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.resolvePosix">resolvePosix</a>(allocator: <a href="#std.mem.Allocator">Allocator</a>, paths: []<span class="tok-kw">const</span> []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std.mem.Allocator">Allocator</a>.<a href="#std.mem.Allocator.Error">Error</a>![]<span class="tok-type">u8</span></code></dt><dd><p>This function is like a series of <code>cd</code> statements executed one after another.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.resolveWindows">resolveWindows</a>(allocator: <a href="#std.mem.Allocator">Allocator</a>, paths: []<span class="tok-kw">const</span> []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std.mem.Allocator">Allocator</a>.<a href="#std.mem.Allocator.Error">Error</a>![]<span class="tok-type">u8</span></code></dt><dd><p>This function is like a series of <code>cd</code> statements executed one after another.
+It resolves "." and ".." to the best of its ability, but will not convert relative paths to
+an absolute path, use Io.Dir.realpath instead.
+".." components may persist in the resolved path if the resolved path is relative or drive-relative.
+Path separators are canonicalized to '\' and drives are canonicalized to capital letters.</p>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.stem">stem</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) []<span class="tok-kw">const</span> <span class="tok-type">u8</span></code></dt><dd><p>Returns the last component of this path without its extension (if any):</p>
+<ul>
+<li>"hello/world/lib.tar.gz" ⇒ "lib.tar"</li>
+<li>"hello/world/lib.tar"    ⇒ "lib"</li>
+<li>"hello/world/lib"        ⇒ "lib"</li>
+</ul>
+</dd></div><div><dt><code><span class="tok-kw">pub</span> <span class="tok-kw">fn</span> <a class="tok-fn" href="#std.fs.path.windowsParsePath">windowsParsePath</a>(path: []<span class="tok-kw">const</span> <span class="tok-type">u8</span>) <a href="#std.fs.path.WindowsPath">WindowsPath</a></code></dt><dd><p>Deprecated; see <code><a href="#std.fs.path.parsePathWindows">parsePathWindows</a></code></p>
+</dd></div></dl>
+    </div>
+    <div id="sectErrSets" class="hidden">
+      <h2>Error Sets</h2>
+      <ul id="listErrSets" class="columns">
+      </ul>
+    </div>
+    <div id="sectDocTests" class="hidden">
+      <h2>Example Usage</h2>
+      <pre><code id="docTestsCode"></code></pre>
+    </div>
+    <div id="sectSource" class="hidden">
+      <h2>Source Code</h2>
+      <pre><code id="sourceText"></code></pre>
+    </div>
+    </section>
+    <div id="helpDialog" class="hidden">
+      <h1>Keyboard Shortcuts</h1>
+      <dl><dt><kbd>?</kbd></dt><dd>Show this help dialog</dd></dl>
+      <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this dialog</dd></dl>
+      <dl><dt><kbd>s</kbd></dt><dd>Focus the search field</dd></dl>
+      <dl><dt><kbd>u</kbd></dt><dd>Go to source code</dd></dl>
+      <dl><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd></dl>
+      <dl><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd></dl>
+      <dl><dt><kbd>⏎</kbd></dt><dd>Go to active search result</dd></dl>
+    </div>
+    <div id="errors" class="hidden">
+      <h1>Errors</h1>
+      <pre id="errorsText"></pre>
+    </div>
+    <script src="main.js"></script>
+
+
+
+</body></html>

@@ -1,0 +1,28 @@
+# Zig build artifacts
+zig-out/
+zig-cache/
+.zig-cache/
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment and local config
+.env
+.env.local
