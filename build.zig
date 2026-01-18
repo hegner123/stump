@@ -5,14 +5,23 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Main executable
+    // Create a library module for the source code that can be shared with tests
+    const stump_lib_module = b.createModule(.{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Main executable module
+    const main_module = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const exe = b.addExecutable(.{
         .name = "stump",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = main_module,
     });
 
     // Install the executable
@@ -43,12 +52,15 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
     // Integration tests
+    const integration_test_module = b.createModule(.{
+        .root_source_file = b.path("test/integration/all_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    integration_test_module.addImport("stump", stump_lib_module);
+
     const integration_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("test/integration/all_tests.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = integration_test_module,
     });
 
     const run_integration_tests = b.addRunArtifact(integration_tests);
