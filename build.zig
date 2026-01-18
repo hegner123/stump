@@ -8,9 +8,11 @@ pub fn build(b: *std.Build) void {
     // Main executable
     const exe = b.addExecutable(.{
         .name = "stump",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     // Install the executable
@@ -31,18 +33,22 @@ pub fn build(b: *std.Build) void {
 
     // Unit tests
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("test/unit/all_tests.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/unit/all_tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
     // Integration tests
     const integration_tests = b.addTest(.{
-        .root_source_file = b.path("test/integration/all_tests.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/integration/all_tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const run_integration_tests = b.addRunArtifact(integration_tests);
@@ -63,23 +69,29 @@ pub fn build(b: *std.Build) void {
     // Release builds with specific optimization levels
     const release_safe_exe = b.addExecutable(.{
         .name = "stump",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = .ReleaseSafe,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+        }),
     });
 
     const release_fast_exe = b.addExecutable(.{
         .name = "stump",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = .ReleaseFast,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
     });
 
     const release_small_exe = b.addExecutable(.{
         .name = "stump",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = .ReleaseSmall,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = .ReleaseSmall,
+        }),
     });
 
     // Release build steps
