@@ -40,7 +40,7 @@ fn traverseDirectory(
     relative_path: []const u8,
     current_depth: i32,
     filter_ctx: *const filter.FilterContext,
-) !void {
+) anyerror!void {
     // Check depth limit
     if (state.config.depth >= 0 and current_depth > state.config.depth) {
         return;
@@ -96,10 +96,10 @@ fn processEntry(
     }
 
     // Build full and relative paths
-    var full_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var full_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const full_path = try std.fmt.bufPrint(&full_path_buf, "{s}/{s}", .{ parent_full_path, entry.name });
 
-    var relative_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var relative_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const relative_path = if (parent_relative_path.len > 0)
         try std.fmt.bufPrint(&relative_path_buf, "{s}/{s}", .{ parent_relative_path, entry.name })
     else
@@ -199,7 +199,7 @@ fn handleSymlink(state: *types.TraversalState, full_path: []const u8, relative_p
 /// Handle invalid UTF-8 filename
 fn handleInvalidUtf8(state: *types.TraversalState, parent_path: []const u8, filename: []const u8) !void {
     // Build the relative path
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const relative_path = if (parent_path.len > 0)
         try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ parent_path, filename })
     else
@@ -213,8 +213,8 @@ fn handleInvalidUtf8(state: *types.TraversalState, parent_path: []const u8, file
     // With force: true, record as non-fatal error and skip
     const path_copy = try state.allocator.dupe(u8, relative_path);
     const msg = try state.allocator.dupe(u8, "Invalid UTF-8 encoding in filename");
-    const error_entry = errors.ErrorEntry.init(.non_utf8_filename, path_copy, msg);
-    try state.errors.append(error_entry);
+    const error_entry = types.ErrorEntry.init(.non_utf8_filename, path_copy, msg);
+    try state.errors.append(state.allocator, error_entry);
 }
 
 /// Add a directory entry to the tree
@@ -228,7 +228,7 @@ fn addDirectoryEntry(state: *types.TraversalState, relative_path: []const u8) !v
         .size = null,
     };
 
-    try state.tree_entries.append(entry);
+    try state.tree_entries.append(state.allocator, entry);
     state.stats.dirs += 1;
 
     // Check token limit in stdout mode
@@ -264,7 +264,7 @@ fn addFileEntry(state: *types.TraversalState, relative_path: []const u8, full_pa
         .size = size,
     };
 
-    try state.tree_entries.append(entry);
+    try state.tree_entries.append(state.allocator, entry);
     state.stats.files += 1;
 
     // Check token limit in stdout mode
@@ -303,11 +303,11 @@ fn handleDirectoryOpenError(state: *types.TraversalState, path: []const u8, err:
         error.NameTooLong => try errors.createPathTooLongError(state.allocator, path_copy),
         else => blk: {
             const msg = try std.fmt.allocPrint(state.allocator, "Cannot open directory: {s}", .{@errorName(err)});
-            break :blk errors.ErrorEntry.init(.unknown_error, path_copy, msg);
+            break :blk types.ErrorEntry.init(.unknown_error, path_copy, msg);
         },
     };
 
-    try state.errors.append(error_entry);
+    try state.errors.append(state.allocator, error_entry);
 }
 
 /// Handle stat errors
@@ -320,5 +320,5 @@ fn handleStatError(state: *types.TraversalState, path: []const u8, err: anyerror
         else => try errors.createUnreadableFileError(state.allocator, path_copy),
     };
 
-    try state.errors.append(error_entry);
+    try state.errors.append(state.allocator, error_entry);
 }

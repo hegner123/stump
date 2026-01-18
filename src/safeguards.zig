@@ -79,11 +79,10 @@ pub fn checkLargeDirectory(path: []const u8, force: bool, allocator: std.mem.All
     if (is_large and !force) {
         // Return fatal error
         return SafeguardResult{
-            .fatal_error = try errors.FatalError.init(
+            .fatal_error = errors.FatalError.init(
                 .large_directory,
                 path,
                 "Refusing to traverse large directory that may contain thousands of files. Recommendations: (1) Use 'depth' parameter to limit traversal, (2) Use filters to reduce scope, (3) Use 'output_file' to save results, or (4) Set 'force: true' to proceed anyway.",
-                allocator,
             ),
         };
     }
@@ -124,7 +123,7 @@ pub fn validateFilenameUtf8(
             // Non-fatal error - skip and continue
             const message = "Invalid UTF-8 encoding in filename (skipped due to force mode)";
             return .{
-                .error_entry = try errors.ErrorEntry.initAlloc(
+                .error_entry = try types.ErrorEntry.initAlloc(
                     .non_utf8_filename,
                     path,
                     message,
