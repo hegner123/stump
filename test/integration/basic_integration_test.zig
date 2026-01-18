@@ -120,20 +120,22 @@ test "symlink cycle detection integration" {
         .show_hidden = true,
         .show_size = true,
         .follow_symlinks = true, // Must follow to detect cycle
-        .force = false,
+        .force = false, // Cycles are FATAL errors
         .performance = false,
         .output_file = null,
         .token_limit = null,
         .sort = .none,
     };
 
+    // With force: false, symlink cycles should cause fatal errors
+    // The OS detects the loop and returns error.SymLinkLoop
     const result = tree.buildTree(allocator, &config);
-    // The OS may report SymLinkLoop error before we detect it
     if (result) |_| {
-        try std.testing.expect(false); // Should have failed
+        // Should NOT succeed - we expect a fatal error
+        try std.testing.expect(false);
     } else |err| {
-        // Accept either SymLinkLoop (from OS) or SymlinkCycle (from our code)
-        try std.testing.expect(err == error.SymLinkLoop or err == error.SymlinkCycle);
+        // Expect SymLinkLoop error from the OS
+        try std.testing.expect(err == error.SymLinkLoop);
     }
 }
 
