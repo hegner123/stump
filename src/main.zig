@@ -210,6 +210,23 @@ fn executeStump(
             return try output.serializeFatalError(allocator, &fatal_error);
         }
 
+        // Handle token limit exceeded during traversal
+        if (err == error.TokenLimitExceeded) {
+            // Create a minimal stats object for the error message
+            const partial_stats = types.Stats{
+                .dirs = 0,
+                .files = 0,
+                .filtered = 0,
+                .symlinks = 0,
+            };
+            return try output.serializeTokenLimitError(
+                allocator,
+                &partial_stats,
+                config.resolved_byte_limit,
+                config.resolved_token_limit,
+            );
+        }
+
         return err;
     };
     defer state.deinit();
