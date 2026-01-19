@@ -5,6 +5,18 @@ const tree = @import("tree.zig");
 const output = @import("output.zig");
 const errors = @import("errors.zig");
 const performance = @import("performance.zig");
+const mcp = @import("mcp.zig");
+
+const JsonRpcError = mcp.JsonRpcError;
+const buildErrorResponse = mcp.buildErrorResponse;
+const buildSuccessResponse = mcp.buildSuccessResponse;
+const buildToolContent = mcp.buildToolContent;
+
+/// Result from executeStump including whether it's an error
+const StumpResult = struct {
+    json: []u8,
+    is_error: bool,
+};
 
 /// MCP protocol request/response structures
 const McpRequest = struct {
@@ -29,11 +41,17 @@ pub fn main() !void {
     // MCP stdio protocol - read line by line
     const stdin = std.fs.File{ .handle = std.posix.STDIN_FILENO };
     const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
-    const stderr = std.fs.File{ .handle = std.posix.STDERR_FILENO };
 
     // Create buffered reader/writer for stdin/stdout
     var reader_buffer: [64 * 1024]u8 = undefined; // 64KB buffer
     var reader = stdin.readerStreaming(&reader_buffer);
+
+    // Protocol state machine
+    var protocol_state = mcp.ProtocolState.uninitialized;
+
+    // Cancellation tracker for notifications/cancelled
+    var cancellation_tracker = mcp.CancellationTracker.init(allocator);
+    defer cancellation_tracker.deinit();
 
     // Read and process requests line by line
     while (true) {
@@ -48,24 +66,154 @@ pub fn main() !void {
         if (line.len == 0) continue;
 
         // Parse JSON request
-        var parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch |err| {
-            // Log parse error to stderr
-            var err_buf: [256]u8 = undefined;
-            const err_msg = std.fmt.bufPrint(&err_buf, "JSON parse error: {}\n", .{err}) catch "Parse error\n";
-            _ = stderr.write(err_msg) catch {};
+        var parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch {
+            // JSON parse error - return error response with null id
+            const error_response = buildErrorResponse(
+                allocator,
+                null,
+                JsonRpcError.PARSE_ERROR,
+                "Parse error: invalid JSON",
+            ) catch continue;
+            defer allocator.free(error_response);
+            _ = stdout.write(error_response) catch {};
+            _ = stdout.write("\n") catch {};
             continue;
         };
         defer parsed.deinit();
 
+        // Extract id for error responses (may be null for notifications)
+        const request_id = parsed.value.object.get("id");
+
+        // Validate jsonrpc version field
+        if (parsed.value.object.get("jsonrpc")) |jsonrpc| {
+            if (jsonrpc != .string or !std.mem.eql(u8, jsonrpc.string, "2.0")) {
+                const error_response = buildErrorResponse(
+                    allocator,
+                    request_id,
+                    JsonRpcError.INVALID_REQUEST,
+                    "Invalid Request: 'jsonrpc' must be '2.0'",
+                ) catch continue;
+                defer allocator.free(error_response);
+                _ = stdout.write(error_response) catch {};
+                _ = stdout.write("\n") catch {};
+                continue;
+            }
+        } else {
+            // Missing jsonrpc field
+            const error_response = buildErrorResponse(
+                allocator,
+                request_id,
+                JsonRpcError.INVALID_REQUEST,
+                "Invalid Request: missing 'jsonrpc' field",
+            ) catch continue;
+            defer allocator.free(error_response);
+            _ = stdout.write(error_response) catch {};
+            _ = stdout.write("\n") catch {};
+            continue;
+        }
+
+        // Extract method for state validation
+        const method = if (parsed.value.object.get("method")) |m|
+            m.string
+        else {
+            // Missing method - send error response
+            const error_response = buildErrorResponse(
+                allocator,
+                request_id,
+                JsonRpcError.INVALID_REQUEST,
+                "Invalid Request: missing 'method' field",
+            ) catch continue;
+            defer allocator.free(error_response);
+            _ = stdout.write(error_response) catch {};
+            _ = stdout.write("\n") catch {};
+            continue;
+        };
+
+        // Check if this is a notification (no id, no response expected)
+        const is_notification = mcp.isNotification(method);
+
+        // Validate method is allowed in current state
+        if (!protocol_state.isMethodAllowed(method)) {
+            // Only send error for requests, not notifications
+            if (!is_notification) {
+                const error_message = switch (protocol_state) {
+                    .uninitialized => "Invalid Request: must call 'initialize' first",
+                    .initializing => "Invalid Request: waiting for 'initialized' notification",
+                    .ready => "Invalid Request: 'initialize' already called",
+                };
+                const error_response = buildErrorResponse(
+                    allocator,
+                    request_id,
+                    JsonRpcError.INVALID_REQUEST,
+                    error_message,
+                ) catch continue;
+                defer allocator.free(error_response);
+                _ = stdout.write(error_response) catch {};
+                _ = stdout.write("\n") catch {};
+            }
+            continue;
+        }
+
+        // Handle notifications (no response)
+        if (is_notification) {
+            // Handle notifications/cancelled specially
+            if (std.mem.eql(u8, method, "notifications/cancelled")) {
+                // Extract the requestId from params and mark it as cancelled
+                if (parsed.value.object.get("params")) |params| {
+                    if (params.object.get("requestId")) |cancelled_id| {
+                        cancellation_tracker.cancel(cancelled_id) catch {};
+                    }
+                }
+            }
+            // Update state for initialized notification
+            protocol_state = protocol_state.nextState(method);
+            continue;
+        }
+
+        // Check if this request was already cancelled before we process it
+        if (request_id) |id| {
+            if (cancellation_tracker.isCancelled(id)) {
+                // Request was cancelled - remove from tracker and skip processing
+                cancellation_tracker.remove(id);
+                continue;
+            }
+        }
+
         // Process the request and generate response
         const response_json = processRequest(allocator, parsed.value) catch |err| {
-            // Log error to stderr for debugging
-            var err_buf: [256]u8 = undefined;
-            const err_msg = std.fmt.bufPrint(&err_buf, "Error: {}\n", .{err}) catch "Error\n";
-            _ = stderr.write(err_msg) catch {};
+            // Map Zig errors to JSON-RPC error codes
+            const error_code: i32 = switch (err) {
+                error.InvalidRequest => JsonRpcError.INVALID_REQUEST,
+                error.MethodNotFound => JsonRpcError.METHOD_NOT_FOUND,
+                error.InvalidParams, error.MissingDirectory => JsonRpcError.INVALID_PARAMS,
+                error.ToolNotFound => JsonRpcError.TOOL_NOT_FOUND,
+                else => JsonRpcError.INTERNAL_ERROR,
+            };
+
+            const error_message: []const u8 = switch (err) {
+                error.InvalidRequest => "Invalid Request: missing required fields",
+                error.MethodNotFound => "Method not found",
+                error.InvalidParams => "Invalid params",
+                error.MissingDirectory => "Invalid params: missing required 'dir' parameter",
+                error.ToolNotFound => "Tool not found: only 'stump' tool is available",
+                else => "Internal error",
+            };
+
+            const error_response = buildErrorResponse(
+                allocator,
+                request_id,
+                error_code,
+                error_message,
+            ) catch continue;
+            defer allocator.free(error_response);
+            _ = stdout.write(error_response) catch {};
+            _ = stdout.write("\n") catch {};
             continue;
         };
         defer allocator.free(response_json);
+
+        // Update protocol state after successful request
+        protocol_state = protocol_state.nextState(method);
 
         // Write response to stdout with newline
         _ = try stdout.write(response_json);
@@ -143,6 +291,8 @@ fn processRequest(allocator: std.mem.Allocator, request_value: std.json.Value) !
     // Handle different MCP methods
     if (std.mem.eql(u8, method, "initialize")) {
         return handleInitialize(allocator, id);
+    } else if (std.mem.eql(u8, method, "ping")) {
+        return handlePing(allocator, id);
     } else if (std.mem.eql(u8, method, "tools/list")) {
         return handleToolsList(allocator, id);
     } else if (std.mem.eql(u8, method, "tools/call")) {
@@ -154,35 +304,43 @@ fn processRequest(allocator: std.mem.Allocator, request_value: std.json.Value) !
 
 /// Handle MCP initialize request
 fn handleInitialize(allocator: std.mem.Allocator, id: std.json.Value) ![]u8 {
-    // Handle id as integer (most common case)
-    const id_int = if (id == .integer) id.integer else 1;
+    const result =
+        \\{"protocolVersion":"2024-11-05","serverInfo":{"name":"stump","version":"1.0.0"},"capabilities":{"tools":{"list":true,"call":true,"listChanged":true}}}
+    ;
+    return buildSuccessResponse(allocator, id, result);
+}
 
-    const response = try std.fmt.allocPrint(allocator,
-        \\{{"jsonrpc":"2.0","id":{d},"result":{{"protocolVersion":"2024-11-05","serverInfo":{{"name":"stump","version":"1.0.0"}},"capabilities":{{"tools":{{"list":true,"call":true,"listChanged":true}}}}}}}}
-    , .{id_int});
-
-    return response;
+/// Handle MCP ping request (connection health check)
+fn handlePing(allocator: std.mem.Allocator, id: std.json.Value) ![]u8 {
+    // Ping returns an empty result object
+    return buildSuccessResponse(allocator, id, "{}");
 }
 
 /// Handle MCP tools/list request
 fn handleToolsList(allocator: std.mem.Allocator, id: std.json.Value) ![]u8 {
-    // Handle id as integer (most common case)
-    const id_int = if (id == .integer) id.integer else 1;
-
-    const response = try std.fmt.allocPrint(allocator,
-        \\{{"jsonrpc":"2.0","id":{d},"result":{{"tools":[{{"name":"stump","description":"Token-efficient directory tree visualization","inputSchema":{{"type":"object","properties":{{"dir":{{"type":"string","description":"Root directory to scan"}},"depth":{{"type":"integer","description":"Max traversal depth (-1 for unlimited)"}},"include_ext":{{"type":"array","items":{{"type":"string"}}}},"exclude_ext":{{"type":"array","items":{{"type":"string"}}}},"exclude_patterns":{{"type":"array","items":{{"type":"string"}}}},"show_hidden":{{"type":"boolean"}},"show_size":{{"type":"boolean"}},"follow_symlinks":{{"type":"boolean"}},"force":{{"type":"boolean"}},"performance":{{"type":"boolean"}},"output_file":{{"type":"string"}},"token_limit":{{"type":"integer"}}}},"required":["dir"]}}}}]}}}}
-    , .{id_int});
-
-    return response;
+    const result =
+        \\{"tools":[{"name":"stump","description":"Token-efficient directory tree visualization","inputSchema":{"type":"object","properties":{"dir":{"type":"string","description":"Root directory to scan"},"depth":{"type":"integer","description":"Max traversal depth (-1 for unlimited)"},"include_ext":{"type":"array","items":{"type":"string"}},"exclude_ext":{"type":"array","items":{"type":"string"}},"exclude_patterns":{"type":"array","items":{"type":"string"}},"show_hidden":{"type":"boolean"},"show_size":{"type":"boolean"},"follow_symlinks":{"type":"boolean"},"force":{"type":"boolean"},"performance":{"type":"boolean"},"output_file":{"type":"string"},"token_limit":{"type":"integer"}},"required":["dir"]}}]}
+    ;
+    return buildSuccessResponse(allocator, id, result);
 }
 
 /// Handle MCP tools/call request
 fn handleToolsCall(allocator: std.mem.Allocator, request_value: std.json.Value, id: std.json.Value) ![]u8 {
-    // Extract arguments from request
-    const arguments = if (request_value.object.get("params")) |params|
-        if (params.object.get("arguments")) |args| args else return error.InvalidRequest
+    // Extract params object
+    const params = request_value.object.get("params") orelse return error.InvalidParams;
+
+    // Validate tool name
+    const tool_name = if (params.object.get("name")) |name|
+        name.string
     else
-        return error.InvalidRequest;
+        return error.InvalidParams;
+
+    if (!std.mem.eql(u8, tool_name, "stump")) {
+        return error.ToolNotFound;
+    }
+
+    // Extract arguments from params
+    const arguments = params.object.get("arguments") orelse return error.InvalidParams;
 
     // Parse configuration from arguments
     var config = try parseConfig(allocator, arguments);
@@ -193,17 +351,14 @@ fn handleToolsCall(allocator: std.mem.Allocator, request_value: std.json.Value, 
     perf_tracker.startTotal();
 
     // Execute the main algorithm
-    const result_json = try executeStump(allocator, &config, &perf_tracker);
-    defer allocator.free(result_json);
+    const result = try executeStump(allocator, &config, &perf_tracker);
+    defer allocator.free(result.json);
 
-    // Handle id as integer (most common case)
-    const id_int = if (id == .integer) id.integer else 1;
+    // Build the result wrapper with isError flag if needed
+    const result_wrapper = try buildToolContent(allocator, result.json, result.is_error);
+    defer allocator.free(result_wrapper);
 
-    const response = try std.fmt.allocPrint(allocator,
-        \\{{"jsonrpc":"2.0","id":{d},"result":{{"content":[{{"type":"text","text":{s}}}]}}}}
-    , .{ id_int, result_json });
-
-    return response;
+    return buildSuccessResponse(allocator, id, result_wrapper);
 }
 
 /// Helper to parse string arrays from JSON with proper cleanup on error
@@ -312,7 +467,7 @@ fn executeStump(
     allocator: std.mem.Allocator,
     config: *types.Config,
     perf_tracker: *performance.PerformanceTracker,
-) ![]u8 {
+) !StumpResult {
     // Step 1: Input validation (already done in parseConfig)
 
     // Step 2: Performance tracking initialized (already done)
@@ -330,14 +485,17 @@ fn executeStump(
     var state = tree.buildTree(allocator, config) catch |err| {
         perf_tracker.stopTraversal();
 
-        // Handle large directory fatal error
+        // Handle large directory fatal error - return as error content
         if (err == error.LargeDirectory) {
             var fatal_error = try errors.buildLargeDirectoryError(allocator, config.dir);
             defer fatal_error.deinit(allocator);
-            return try output.serializeFatalError(allocator, &fatal_error);
+            return StumpResult{
+                .json = try output.serializeFatalError(allocator, &fatal_error),
+                .is_error = true,
+            };
         }
 
-        // Handle token limit exceeded during traversal
+        // Handle token limit exceeded during traversal - return as error content
         if (err == error.TokenLimitExceeded) {
             // Create a minimal stats object for the error message
             const partial_stats = types.Stats{
@@ -346,12 +504,15 @@ fn executeStump(
                 .filtered = 0,
                 .symlinks = 0,
             };
-            return try output.serializeTokenLimitError(
-                allocator,
-                &partial_stats,
-                config.resolved_byte_limit,
-                config.resolved_token_limit,
-            );
+            return StumpResult{
+                .json = try output.serializeTokenLimitError(
+                    allocator,
+                    &partial_stats,
+                    config.resolved_byte_limit,
+                    config.resolved_token_limit,
+                ),
+                .is_error = true,
+            };
         }
 
         return err;
@@ -380,8 +541,11 @@ fn executeStump(
         const file_success = try output.serializeToFile(allocator, &output_data, config.output_file, perf_tracker);
         defer allocator.free(file_success.message);
 
-        // Serialize file success response as JSON
-        return try serializeFileSuccess(allocator, &file_success);
+        // Serialize file success response as JSON (not an error)
+        return StumpResult{
+            .json = try serializeFileSuccess(allocator, &file_success),
+            .is_error = false,
+        };
     } else {
         // Stdout mode: serialize to stdout with token limit check
         // First serialize to check size
@@ -389,19 +553,24 @@ fn executeStump(
         errdefer allocator.free(json_output);
 
         if (json_output.len > config.resolved_byte_limit) {
-            // Token limit exceeded - free the output and return error
+            // Token limit exceeded - free the output and return error content
             allocator.free(json_output);
-            const token_limit_error = try output.serializeTokenLimitError(
-                allocator,
-                &state.stats,
-                json_output.len,
-                config.resolved_token_limit,
-            );
-            return token_limit_error;
+            return StumpResult{
+                .json = try output.serializeTokenLimitError(
+                    allocator,
+                    &state.stats,
+                    json_output.len,
+                    config.resolved_token_limit,
+                ),
+                .is_error = true,
+            };
         }
 
-        // Within limit - return the JSON
-        return json_output;
+        // Within limit - return the JSON (not an error)
+        return StumpResult{
+            .json = json_output,
+            .is_error = false,
+        };
     }
 }
 

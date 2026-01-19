@@ -11,4 +11,5 @@ test {
     _ = @import("safeguards_test.zig");
     _ = @import("symlink_test.zig");
     _ = @import("output_test.zig");
+    _ = @import("mcp_test.zig");
 }

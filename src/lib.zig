@@ -9,3 +9,4 @@ pub const performance = @import("performance.zig");
 pub const filter = @import("filter.zig");
 pub const safeguards = @import("safeguards.zig");
 pub const symlink = @import("symlink.zig");
+pub const mcp = @import("mcp.zig");
