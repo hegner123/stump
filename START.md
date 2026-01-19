@@ -21,10 +21,10 @@ Token-efficient directory tree visualization MCP server written in Zig.
 ## Key Paths
 
 ### Documentation
-- `PLAN.md` - Main project specification and design decisions
-- `CONCURRENT-PLAN.md` - Multi-agent development plan with dependency graph
-- `AGENT-QUICKSTART.md` - Quick start guide for agents working on specific tasks
-- `SETUP-CHECKLIST.md` - Setup verification checklist before starting development
+- `planning/PLAN.md` - Main project specification and design decisions
+- `planning/CONCURRENT-PLAN.md` - Multi-agent development plan with dependency graph
+- `planning/AGENT-QUICKSTART.md` - Quick start guide for agents working on specific tasks
+- `planning/SETUP-CHECKLIST.md` - Setup verification checklist before starting development
 - `START.md` (this file) - Project onboarding and orientation
 
 ### Source Code (to be created)
@@ -73,7 +73,7 @@ claude mcp add --transport stdio stump -- /path/to/stump
 
 **Coordinator setup:**
 ```bash
-# 1. Create worktrees (see CONCURRENT-PLAN.md for commands)
+# 1. Create worktrees (see planning/CONCURRENT-PLAN.md for commands)
 git worktree add -b step1a/core-add-types ../stump-step1a-core-add-types
 # ... (create all 14 worktrees)
 
@@ -81,7 +81,7 @@ git worktree add -b step1a/core-add-types ../stump-step1a-core-add-types
 Use mcp__concurrent-agent-mcp__create_project:
 - name: "stump"
 - base_commit: <git rev-parse HEAD>
-- steps: [array of 14 step definitions from CONCURRENT-PLAN.md]
+- steps: [array of 14 step definitions from planning/CONCURRENT-PLAN.md]
 
 # 3. Verify setup
 Use mcp__concurrent-agent-mcp__get_project with name: "stump"
@@ -123,10 +123,10 @@ Use mcp__concurrent-agent-mcp__get_project with name: "stump"
 Use mcp__concurrent-agent-mcp__get_metrics with project: "stump"
 
 # Coordinator: Merge all completed steps (when all done)
-# See CONCURRENT-PLAN.md for merge order
+# See planning/CONCURRENT-PLAN.md for merge order
 
 # Cleanup after successful merge
-# Remove worktrees, delete branches (see CONCURRENT-PLAN.md)
+# Remove worktrees, delete branches (see planning/CONCURRENT-PLAN.md)
 ```
 
 ## Architecture Overview
@@ -210,19 +210,19 @@ Main (depends on everything):
 
 ### Single-Agent Path
 
-1. Read PLAN.md fully
+1. Read planning/PLAN.md fully
 2. Implement modules in dependency order (types → config → errors → etc.)
 3. Write tests as you go
 4. Build and verify incrementally
 
 ### Multi-Agent Path (Recommended)
 
-1. **Coordinator:** Run setup checklist (SETUP-CHECKLIST.md)
+1. **Coordinator:** Run setup checklist (planning/SETUP-CHECKLIST.md)
    - Create worktrees for all 14 steps
    - Use `mcp__concurrent-agent-mcp__create_project` to initialize project
    - Verify setup with `mcp__concurrent-agent-mcp__get_project`
 
-2. **All Agents:** Read AGENT-QUICKSTART.md
+2. **All Agents:** Read planning/AGENT-QUICKSTART.md
    - Ensure MCP concurrent-agent access
    - Understand heartbeat requirement (every 30-60 sec)
 
@@ -269,13 +269,13 @@ For agents joining this project:
 
 1. **Read documentation in order:**
    - START.md (this file) - Project overview and orientation
-   - PLAN.md - Complete specification and design decisions
-   - CONCURRENT-PLAN.md - Multi-agent development plan (if doing concurrent dev)
-   - AGENT-QUICKSTART.md - Quick reference for agent workflow (if doing concurrent dev)
+   - planning/PLAN.md - Complete specification and design decisions
+   - planning/CONCURRENT-PLAN.md - Multi-agent development plan (if doing concurrent dev)
+   - planning/AGENT-QUICKSTART.md - Quick reference for agent workflow (if doing concurrent dev)
 
 2. **Memorize key project structure:**
-   - Documentation: PLAN.md, CONCURRENT-PLAN.md, AGENT-QUICKSTART.md, SETUP-CHECKLIST.md
-   - Source (to be created): src/*.zig modules
+   - Documentation: planning/PLAN.md, planning/CONCURRENT-PLAN.md, planning/AGENT-QUICKSTART.md, planning/SETUP-CHECKLIST.md
+   - Source: src/*.zig modules
    - Tests (to be created): test/unit/, test/integration/, test/fixtures/
    - Scripts: scripts/worktree-helper.sh
    - Reference: ai/zig-reference/
@@ -303,7 +303,7 @@ For agents joining this project:
    - Human-readable error messages
 
 7. **Before writing code:**
-   - Read the relevant section in PLAN.md for your module
+   - Read the relevant section in planning/PLAN.md for your module
    - Understand the module's dependencies
    - Review the expected data structures (types.zig interface)
    - Check test fixtures to understand expected behavior
@@ -314,7 +314,7 @@ The project is complete when:
 
 1. Token efficiency: 50%+ reduction vs standard tree output
 2. Performance: <100ms for 1000 files, <1s for 10,000 files
-3. All features implemented per PLAN.md
+3. All features implemented per planning/PLAN.md
 4. Token limit enforcement working correctly
 5. Symlink handling with cycle detection working
 6. Safety safeguards functioning (large dir, UTF-8 validation)
@@ -326,10 +326,10 @@ The project is complete when:
 
 ## Questions?
 
-- **Project specification:** See PLAN.md
-- **Concurrent development:** See CONCURRENT-PLAN.md
-- **Quick workflow reference:** See AGENT-QUICKSTART.md
-- **Setup verification:** See SETUP-CHECKLIST.md
+- **Project specification:** See planning/PLAN.md
+- **Concurrent development:** See planning/CONCURRENT-PLAN.md
+- **Quick workflow reference:** See planning/AGENT-QUICKSTART.md
+- **Setup verification:** See planning/SETUP-CHECKLIST.md
 - **MCP project status:** Use `mcp__concurrent-agent-mcp__get_project` with name: "stump"
 - **MCP metrics:** Use `mcp__concurrent-agent-mcp__get_metrics` with project: "stump"
 
@@ -342,7 +342,7 @@ The project is complete when:
 ## Getting Started Now
 
 **If you're the coordinator setting up:**
-1. Follow SETUP-CHECKLIST.md phases 1-8
+1. Follow planning/SETUP-CHECKLIST.md phases 1-8
 2. Create worktrees for all 14 steps
 3. Use `mcp__concurrent-agent-mcp__create_project` to initialize
 4. Verify with `mcp__concurrent-agent-mcp__get_project`
