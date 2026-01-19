@@ -348,8 +348,10 @@ Compared to standard `tree` command output:
 ```
 stump/
 ├── src/
-│   ├── main.zig          # Entry point, MCP stdio handler
-│   ├── config.zig        # Config resolution (token limits, flags)
+│   ├── main.zig          # Entry point, CLI and MCP stdio handler
+│   ├── mcp.zig           # MCP protocol handling
+│   ├── lib.zig           # Library exports for testing
+│   ├── config.zig        # Config resolution (token limits, env vars)
 │   ├── types.zig         # All data structures
 │   ├── tree.zig          # Core tree traversal logic
 │   ├── filter.zig        # Filtering and pattern matching
@@ -358,12 +360,24 @@ stump/
 │   ├── safeguards.zig    # Large dir detection, UTF-8 validation
 │   ├── output.zig        # JSON formatting
 │   └── performance.zig   # Metrics tracking
+├── test/
+│   ├── unit/             # Unit tests for each module
+│   ├── integration/      # End-to-end integration tests
+│   └── fixtures/         # Test directories (basic, deep, wide, symlinks, utf8)
+├── planning/             # Development planning docs
+│   ├── PLAN.md           # Main project specification
+│   ├── CONCURRENT-PLAN.md
+│   ├── AGENT-QUICKSTART.md
+│   └── SETUP-CHECKLIST.md
+├── ai/zig-reference/     # Zig stdlib reference docs
+├── .github/workflows/    # CI/CD workflows
+│   ├── test.yml          # Test on push/PR
+│   └── release.yml       # Build binaries on release
 ├── build.zig             # Zig build configuration
-├── test/                 # Test fixtures and test files
-│   ├── unit/            # Unit tests
-│   ├── integration/     # Integration tests
-│   └── fixtures/        # Test directories
-└── README.md             # This file
+├── Makefile              # Common commands
+├── START.md              # Project onboarding
+├── README.md             # This file
+└── LICENSE               # MIT license
 ```
 
 ### Contributing
