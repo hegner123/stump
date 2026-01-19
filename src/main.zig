@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const config_module = @import("config.zig");
 const tree = @import("tree.zig");
@@ -11,6 +12,243 @@ const JsonRpcError = mcp.JsonRpcError;
 const buildErrorResponse = mcp.buildErrorResponse;
 const buildSuccessResponse = mcp.buildSuccessResponse;
 const buildToolContent = mcp.buildToolContent;
+
+/// CLI argument parsing result
+const CliArgs = struct {
+    config: types.Config,
+    show_help: bool = false,
+
+    pub fn deinit(self: *CliArgs, allocator: std.mem.Allocator) void {
+        self.config.deinit(allocator);
+    }
+};
+
+/// CLI parsing errors
+const CliError = error{
+    MissingDirectory,
+    InvalidDepth,
+    InvalidTokenLimit,
+    UnknownFlag,
+    MissingValue,
+    OutOfMemory,
+};
+
+/// Print CLI help message
+fn printHelp(file: std.fs.File) !void {
+    const help_text =
+        \\stump - Token-efficient directory tree visualization
+        \\
+        \\USAGE:
+        \\  stump [OPTIONS] <directory>
+        \\  stump                        (runs as MCP server via stdio)
+        \\
+        \\ARGUMENTS:
+        \\  <directory>                  Root directory to scan
+        \\
+        \\OPTIONS:
+        \\  -h, --help                   Show this help message
+        \\  -d, --depth <N>              Max traversal depth (-1 for unlimited, default: -1)
+        \\  -o, --output <file>          Output to file instead of stdout
+        \\  --include-ext <ext,...>      Only include files with these extensions
+        \\  --exclude-ext <ext,...>      Exclude files with these extensions
+        \\  --exclude <pattern,...>      Exclude paths matching patterns
+        \\  --hidden                     Show hidden files (default: true)
+        \\  --no-hidden                  Hide hidden files
+        \\  --size                       Show file sizes (default: true)
+        \\  --no-size                    Hide file sizes
+        \\  --follow-symlinks            Follow symbolic links
+        \\  --force                      Bypass large directory safeguards
+        \\  --performance                Include performance metrics
+        \\  --token-limit <N>            Token limit (1000-100000, default: 10000)
+        \\
+        \\EXAMPLES:
+        \\  stump .                      Scan current directory
+        \\  stump ~/projects -d 3        Scan with max depth 3
+        \\  stump src --exclude-ext log,tmp
+        \\  stump . --no-hidden -o tree.json
+        \\
+        \\ENVIRONMENT:
+        \\  STUMP_TOKEN_LIMIT            Default token limit (overridden by --token-limit)
+        \\
+    ;
+    _ = try file.write(help_text);
+}
+
+/// Split a comma-separated string into array
+fn splitCommaList(allocator: std.mem.Allocator, input: []const u8) ![]const []const u8 {
+    var count: usize = 1;
+    for (input) |c| {
+        if (c == ',') count += 1;
+    }
+
+    var list = try allocator.alloc([]const u8, count);
+    errdefer allocator.free(list);
+
+    var allocated: usize = 0;
+    errdefer {
+        for (list[0..allocated]) |item| {
+            allocator.free(item);
+        }
+    }
+
+    var start: usize = 0;
+    var idx: usize = 0;
+    for (input, 0..) |c, i| {
+        if (c == ',') {
+            list[idx] = try allocator.dupe(u8, input[start..i]);
+            allocated += 1;
+            idx += 1;
+            start = i + 1;
+        }
+    }
+    list[idx] = try allocator.dupe(u8, input[start..]);
+    allocated += 1;
+
+    return list;
+}
+
+/// Parse CLI arguments into config
+fn parseCliArgs(allocator: std.mem.Allocator) CliError!CliArgs {
+    var args_iter = std.process.args();
+    _ = args_iter.skip(); // Skip program name
+
+    var result = CliArgs{
+        .config = types.Config{
+            .dir = undefined,
+            .depth = -1,
+            .include_ext = null,
+            .exclude_ext = null,
+            .exclude_patterns = null,
+            .show_hidden = true,
+            .show_size = true,
+            .follow_symlinks = false,
+            .force = false,
+            .performance = false,
+            .output_file = null,
+            .token_limit = null,
+            .sort = .none,
+        },
+        .show_help = false,
+    };
+
+    var dir_set = false;
+
+    while (args_iter.next()) |arg| {
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            result.show_help = true;
+            result.config.dir = allocator.dupe(u8, ".") catch return CliError.OutOfMemory;
+            return result;
+        } else if (std.mem.eql(u8, arg, "-d") or std.mem.eql(u8, arg, "--depth")) {
+            const val = args_iter.next() orelse return CliError.MissingValue;
+            result.config.depth = std.fmt.parseInt(i32, val, 10) catch return CliError.InvalidDepth;
+        } else if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--output")) {
+            const val = args_iter.next() orelse return CliError.MissingValue;
+            result.config.output_file = allocator.dupe(u8, val) catch return CliError.OutOfMemory;
+        } else if (std.mem.eql(u8, arg, "--include-ext")) {
+            const val = args_iter.next() orelse return CliError.MissingValue;
+            result.config.include_ext = splitCommaList(allocator, val) catch return CliError.OutOfMemory;
+        } else if (std.mem.eql(u8, arg, "--exclude-ext")) {
+            const val = args_iter.next() orelse return CliError.MissingValue;
+            result.config.exclude_ext = splitCommaList(allocator, val) catch return CliError.OutOfMemory;
+        } else if (std.mem.eql(u8, arg, "--exclude")) {
+            const val = args_iter.next() orelse return CliError.MissingValue;
+            result.config.exclude_patterns = splitCommaList(allocator, val) catch return CliError.OutOfMemory;
+        } else if (std.mem.eql(u8, arg, "--hidden")) {
+            result.config.show_hidden = true;
+        } else if (std.mem.eql(u8, arg, "--no-hidden")) {
+            result.config.show_hidden = false;
+        } else if (std.mem.eql(u8, arg, "--size")) {
+            result.config.show_size = true;
+        } else if (std.mem.eql(u8, arg, "--no-size")) {
+            result.config.show_size = false;
+        } else if (std.mem.eql(u8, arg, "--follow-symlinks")) {
+            result.config.follow_symlinks = true;
+        } else if (std.mem.eql(u8, arg, "--force")) {
+            result.config.force = true;
+        } else if (std.mem.eql(u8, arg, "--performance")) {
+            result.config.performance = true;
+        } else if (std.mem.eql(u8, arg, "--token-limit")) {
+            const val = args_iter.next() orelse return CliError.MissingValue;
+            result.config.token_limit = std.fmt.parseInt(u64, val, 10) catch return CliError.InvalidTokenLimit;
+        } else if (arg[0] == '-') {
+            return CliError.UnknownFlag;
+        } else {
+            // Positional argument - directory
+            if (!dir_set) {
+                result.config.dir = allocator.dupe(u8, arg) catch return CliError.OutOfMemory;
+                dir_set = true;
+            }
+        }
+    }
+
+    if (!dir_set) {
+        return CliError.MissingDirectory;
+    }
+
+    // Resolve token limit
+    const resolved_limit = config_module.resolveTokenLimit(if (result.config.token_limit) |tl| @intCast(tl) else null);
+    result.config.resolved_token_limit = resolved_limit;
+    result.config.resolved_byte_limit = config_module.tokenLimitToBytes(resolved_limit);
+
+    return result;
+}
+
+/// Run in CLI mode - parse args, execute, print result
+fn runCliMode(allocator: std.mem.Allocator) !u8 {
+    const stderr_file = std.fs.File{ .handle = std.posix.STDERR_FILENO };
+    const stdout_file = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+
+    var cli_args = parseCliArgs(allocator) catch |err| {
+        const msg: []const u8 = switch (err) {
+            CliError.MissingDirectory => "Error: missing directory argument\nRun 'stump --help' for usage\n",
+            CliError.InvalidDepth => "Error: invalid depth value\n",
+            CliError.InvalidTokenLimit => "Error: invalid token-limit value\n",
+            CliError.UnknownFlag => "Error: unknown flag\nRun 'stump --help' for usage\n",
+            CliError.MissingValue => "Error: missing value for flag\n",
+            CliError.OutOfMemory => "Error: out of memory\n",
+        };
+        _ = stderr_file.write(msg) catch {};
+        return 1;
+    };
+    defer cli_args.deinit(allocator);
+
+    if (cli_args.show_help) {
+        printHelp(stdout_file) catch {};
+        return 0;
+    }
+
+    // Initialize performance tracker
+    var perf_tracker = performance.PerformanceTracker.init(allocator, cli_args.config.performance);
+    perf_tracker.startTotal();
+
+    // Execute the main algorithm
+    const result = executeStump(allocator, &cli_args.config, &perf_tracker) catch |err| {
+        var buf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "Error: {}\n", .{err}) catch "Error\n";
+        _ = stderr_file.write(msg) catch {};
+        return 1;
+    };
+    defer allocator.free(result.json);
+
+    // Output result
+    _ = try stdout_file.write(result.json);
+    _ = try stdout_file.write("\n");
+
+    return if (result.is_error) 1 else 0;
+}
+
+/// Check if stdin is a terminal (interactive) or piped
+fn isStdinTerminal() bool {
+    const stdin_handle = std.posix.STDIN_FILENO;
+    return std.posix.isatty(stdin_handle);
+}
+
+/// Check if any CLI arguments were passed
+fn hasCliArgs() bool {
+    var args = std.process.args();
+    _ = args.skip(); // Skip program name
+    return args.next() != null;
+}
 
 /// Result from executeStump including whether it's an error
 const StumpResult = struct {
@@ -33,10 +271,15 @@ const McpResponse = struct {
     result: std.json.Value,
 };
 
-pub fn main() !void {
+pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    // Detect mode: CLI if arguments passed, otherwise MCP
+    if (hasCliArgs()) {
+        return runCliMode(allocator);
+    }
 
     // MCP stdio protocol - read line by line
     const stdin = std.fs.File{ .handle = std.posix.STDIN_FILENO };
@@ -219,6 +462,8 @@ pub fn main() !void {
         _ = try stdout.write(response_json);
         _ = try stdout.write("\n");
     }
+
+    return 0;
 }
 
 /// Read a line from the reader, allocating as needed for large lines
@@ -528,11 +773,12 @@ fn executeStump(
     }
 
     // Step 10: Build output data
-    const output_data = try buildOutputData(allocator, config, &state, perf_tracker);
+    var output_data = try buildOutputData(allocator, config, &state, perf_tracker);
     defer {
-        // Note: We can't call output_data.deinit() here because we're transferring
-        // ownership of some fields to the serialization functions
-        // The serialization functions will handle cleanup
+        // Free OutputData fields we own (root and _note are allocated by buildOutputData)
+        // Tree entries are managed by TraversalState.deinit()
+        allocator.free(output_data.root);
+        if (output_data._note) |note| allocator.free(note);
     }
 
     // Step 11: Serialize and output

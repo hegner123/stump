@@ -26,3 +26,8 @@ zig-cache/
 # Environment and local config
 .env
 .env.local
+
+# Internal/development
+.claude/
+.trash/
+ai/

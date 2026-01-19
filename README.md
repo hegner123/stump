@@ -19,7 +19,7 @@ A high-performance MCP server tool that provides compact, token-efficient direct
 
 ### Prerequisites
 
-- Zig 0.11.0 or later
+- Zig 0.15.0 or later
 - Unix/Linux or macOS (v1 - Windows support planned for v2)
 
 ### Build
@@ -38,6 +38,25 @@ zig build release-small  # Minimal binary size
 ```
 
 The compiled binary will be in `zig-out/bin/stump`.
+
+### CLI Usage
+
+Stump can be used directly from the command line:
+
+```bash
+# Basic usage
+stump .                           # Current directory
+stump ~/projects -d 3             # Max depth 3
+stump src --exclude-ext log,tmp   # Filter extensions
+stump . --no-hidden               # Hide hidden files
+stump . -o tree.json              # Output to file
+
+# Install to PATH
+sudo cp zig-out/bin/stump /usr/local/bin/
+# Or use: make install
+```
+
+Run `stump --help` for all options.
 
 ### Installation as MCP Server
 
