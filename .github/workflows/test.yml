@@ -1,0 +1,51 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.0
+
+      - name: Build
+        run: zig build
+
+      - name: Run unit tests
+        run: zig build test-unit
+
+      - name: Run integration tests
+        run: zig build test-integration
+
+  build-release:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.0
+
+      - name: Build ReleaseFast
+        run: zig build release-fast
+
+      - name: Verify binary
+        run: ./zig-out/bin/stump --help
