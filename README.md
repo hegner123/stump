@@ -395,4 +395,10 @@ MIT License - see LICENSE file for details
 
 ## Authors
 
-Built with concurrent AI-augmented development using Claude Code.
+Built with AI-augmented concurrent development:
+
+- **Initial Plan**: Co-authored by [@hegner123](https://github.com/hegner123) and Claude Sonnet 4.5
+- **Implementation**: Concurrent task agents via [hq](https://github.com/hegner123/hq) coordination platform, Claude Sonnet 4.5
+- **1st Round Bug Fixes**: Claude Sonnet 4.5 with documentation by [@hegner123](https://github.com/hegner123)
+- **2nd Round Bug Fixes**: Claude Opus 4.5 with documentation by [@hegner123](https://github.com/hegner123)
+- **Final Bug Fixes & Tests**: Claude Opus 4.5
