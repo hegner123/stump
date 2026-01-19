@@ -3,10 +3,36 @@
     "allow": [
       "Bash(chmod:*)",
       "Bash(fd:*)",
-      "mcp__concurrent-agent-mcp__get_project",
       "Bash(git rev-parse:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(gh repo edit:*)",
+      "Bash(wc:*)",
+      "Bash(zig build:*)",
+      "Bash(zig test:*)",
+      "Bash(claude mcp list:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(claude mcp remove:*)",
+      "Bash(/usr/local/bin/stump:*)",
+      "Bash(checkfor:*)",
+      "Bash(zig version:*)",
+      "WebSearch",
+      "Bash(sudo cp:*)",
+      "Bash(./zig-out/bin/stump:*)",
+      "Bash(echo:*)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump status)",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump add .github/)",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump commit -m \"$\\(cat <<''EOF''\nAdd GitHub Actions workflows for testing and releases\n\n- test.yml: Run unit/integration tests on ubuntu and macos\n- release.yml: Build binaries for linux/macos \\(x86_64/aarch64\\) on release\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump push)",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump add .github/workflows/)",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump commit -m \"$\\(cat <<''EOF''\nFix Zig version to 0.15.2 in workflows\n\n0.15.0 lacks Reader.takeDelimiter API used in main.zig\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump add README.md)",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump commit -m \"$\\(cat <<''EOF''\nAdd GitHub badges and fix Zig version in README\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump commit -m \"$\\(cat <<''EOF''\nUpdate README project structure to match actual layout\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /Users/home/Documents/Code/Go_dev/terse-mcp/stump commit -m \"$\\(cat <<''EOF''\nUpdate authors section with development credits\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
