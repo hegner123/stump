@@ -41,12 +41,15 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     // Unit tests
+    const unit_test_module = b.createModule(.{
+        .root_source_file = b.path("test/unit/all_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    unit_test_module.addImport("stump", stump_lib_module);
+
     const unit_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("test/unit/all_tests.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = unit_test_module,
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);

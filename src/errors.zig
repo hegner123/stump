@@ -1,93 +1,9 @@
 const std = @import("std");
 const types = @import("types.zig");
 
-/// Error type enum for categorization
-pub const ErrorType = enum {
-    // Fatal errors (block execution unless force: true)
-    large_directory,
-    non_utf8_filename,
-    symlink_cycle,
-
-    // Non-fatal errors (collected and reported)
-    permission_denied,
-    invalid_symlink,
-    path_too_long,
-    unreadable_file,
-    token_limit_exceeded,
-    invalid_input,
-    unknown_error,
-
-    pub fn isFatal(self: ErrorType) bool {
-        return switch (self) {
-            .large_directory, .non_utf8_filename, .symlink_cycle => true,
-            else => false,
-        };
-    }
-
-    pub fn toString(self: ErrorType) []const u8 {
-        return switch (self) {
-            .large_directory => "large_directory",
-            .non_utf8_filename => "non_utf8_filename",
-            .symlink_cycle => "symlink_cycle",
-            .permission_denied => "permission_denied",
-            .invalid_symlink => "invalid_symlink",
-            .path_too_long => "path_too_long",
-            .unreadable_file => "unreadable_file",
-            .token_limit_exceeded => "token_limit_exceeded",
-            .invalid_input => "invalid_input",
-            .unknown_error => "unknown_error",
-        };
-    }
-};
-
-/// Error entry for non-fatal errors array
-pub const ErrorEntry = struct {
-    type: ErrorType,
-    path: []const u8,
-    message: []const u8,
-    target: ?[]const u8 = null, // Optional, for symlink errors
-
-    pub fn init(err_type: ErrorType, path: []const u8, message: []const u8) ErrorEntry {
-        return .{
-            .type = err_type,
-            .path = path,
-            .message = message,
-        };
-    }
-
-    pub fn initWithTarget(err_type: ErrorType, path: []const u8, target: []const u8, message: []const u8) ErrorEntry {
-        return .{
-            .type = err_type,
-            .path = path,
-            .message = message,
-            .target = target,
-        };
-    }
-};
-
-/// Fatal error response structure for MCP
-pub const FatalError = struct {
-    @"error": []const u8,
-    type: []const u8,
-    path: ?[]const u8 = null,
-    message: []const u8,
-
-    pub fn init(err_type: ErrorType, path: ?[]const u8, message: []const u8) FatalError {
-        const error_name = switch (err_type) {
-            .large_directory => "Large directory detected",
-            .non_utf8_filename => "Invalid filename encoding",
-            .symlink_cycle => "Symlink cycle detected",
-            else => "Fatal error",
-        };
-
-        return .{
-            .@"error" = error_name,
-            .type = err_type.toString(),
-            .path = path,
-            .message = message,
-        };
-    }
-};
+// Re-export types for convenience (canonical definitions are in types.zig)
+pub const ErrorType = types.ErrorType;
+pub const ErrorEntry = types.ErrorEntry;
 
 /// Build fatal error message for large directory
 pub fn buildLargeDirectoryError(allocator: std.mem.Allocator, path: []const u8) !types.FatalError {
@@ -96,8 +12,9 @@ pub fn buildLargeDirectoryError(allocator: std.mem.Allocator, path: []const u8) 
         "Refusing to traverse large directory that may contain thousands of files. Recommendations: (1) Use 'depth' parameter to limit traversal, (2) Use filters to reduce scope, (3) Use 'output_file' to save results, or (4) Set 'force: true' to proceed anyway.",
         .{},
     );
+    defer allocator.free(message); // FatalError.init will duplicate it
 
-    return types.FatalError.init(.large_directory, path, message);
+    return try types.FatalError.init(allocator, .large_directory, path, message);
 }
 
 /// Build fatal error message for non-UTF8 filename
@@ -107,8 +24,9 @@ pub fn buildNonUtf8Error(allocator: std.mem.Allocator, path: []const u8) !types.
         "Encountered filename with invalid UTF-8 encoding. This may indicate a legacy file, corrupted filesystem, or unusual naming. Use 'force: true' to skip this file and continue.",
         .{},
     );
+    defer allocator.free(message); // FatalError.init will duplicate it
 
-    return types.FatalError.init(.non_utf8_filename, path, message);
+    return try types.FatalError.init(allocator, .non_utf8_filename, path, message);
 }
 
 /// Build fatal error message for symlink cycle
@@ -118,8 +36,9 @@ pub fn buildSymlinkCycleError(allocator: std.mem.Allocator, path: []const u8) !t
         "Detected symlink cycle at this path. This would cause infinite traversal. Use 'force: true' to skip this symlink and continue, or disable 'follow_symlinks'.",
         .{},
     );
+    defer allocator.free(message); // FatalError.init will duplicate it
 
-    return types.FatalError.init(.symlink_cycle, path, message);
+    return try types.FatalError.init(allocator, .symlink_cycle, path, message);
 }
 
 /// Build token limit exceeded error

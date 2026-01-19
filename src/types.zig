@@ -260,25 +260,39 @@ pub const OutputData = struct {
 };
 
 /// Fatal error response structure
+/// All string fields are owned by this struct and must be freed
 pub const FatalError = struct {
     error_name: []const u8,
     type: ErrorType,
     path: []const u8,
     message: []const u8,
 
-    pub fn init(err_type: ErrorType, path: []const u8, message: []const u8) FatalError {
-        const error_name = switch (err_type) {
+    /// Create a FatalError with all fields allocated
+    /// Caller must call deinit() to free memory
+    pub fn init(allocator: std.mem.Allocator, err_type: ErrorType, path: []const u8, message: []const u8) !FatalError {
+        const error_name_literal = switch (err_type) {
             .large_directory => "Large directory detected",
             .non_utf8_filename => "Invalid filename encoding",
             .symlink_cycle => "Symlink cycle detected",
             else => "Fatal error",
         };
 
+        // Allocate all fields for consistent ownership
+        const error_name = try allocator.dupe(u8, error_name_literal);
+        errdefer allocator.free(error_name);
+
+        const path_copy = try allocator.dupe(u8, path);
+        errdefer allocator.free(path_copy);
+
+        // message is already allocated by the caller, but we need to own it
+        // so we duplicate it for consistency
+        const message_copy = try allocator.dupe(u8, message);
+
         return .{
             .error_name = error_name,
             .type = err_type,
-            .path = path,
-            .message = message,
+            .path = path_copy,
+            .message = message_copy,
         };
     }
 

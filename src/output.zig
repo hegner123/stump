@@ -425,23 +425,24 @@ test "writeJsonString" {
     var buffer = std.ArrayList(u8){};
     defer buffer.deinit(allocator);
 
-    try writeJsonString(&buffer, "hello \"world\"");
+    try writeJsonString(allocator, &buffer, "hello \"world\"");
     try std.testing.expectEqualStrings("\"hello \\\"world\\\"\"", buffer.items);
 
     buffer.clearRetainingCapacity();
-    try writeJsonString(&buffer, "line1\nline2");
+    try writeJsonString(allocator, &buffer, "line1\nline2");
     try std.testing.expectEqualStrings("\"line1\\nline2\"", buffer.items);
 }
 
 test "serializeFatalError" {
     const allocator = std.testing.allocator;
 
-    const fatal_error = types.FatalError{
-        .error_name = "Large directory detected",
-        .type = .large_directory,
-        .path = "/home/user",
-        .message = "Refusing to traverse",
-    };
+    var fatal_error = try types.FatalError.init(
+        allocator,
+        .large_directory,
+        "/home/user",
+        "Refusing to traverse",
+    );
+    defer fatal_error.deinit(allocator);
 
     const json = try serializeFatalError(allocator, &fatal_error);
     defer allocator.free(json);

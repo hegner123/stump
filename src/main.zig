@@ -26,35 +26,158 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Read from stdin (MCP stdio protocol)
+    // MCP stdio protocol - read line by line
     const stdin = std.fs.File{ .handle = std.posix.STDIN_FILENO };
     const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
     const stderr = std.fs.File{ .handle = std.posix.STDERR_FILENO };
 
-    // Read entire input
-    const input = try stdin.readToEndAlloc(allocator, 10 * 1024 * 1024); // 10MB max
-    defer allocator.free(input);
+    // Create buffered reader/writer for stdin/stdout
+    var reader_buffer: [64 * 1024]u8 = undefined; // 64KB buffer
+    var reader = stdin.readerStreaming(&reader_buffer);
 
-    // Parse JSON request
-    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, input, .{});
-    defer parsed.deinit();
+    // Read and process requests line by line
+    while (true) {
+        // Read one line (one JSON-RPC request)
+        const line = readLine(allocator, &reader) catch |err| {
+            if (err == error.EndOfStream) break;
+            return err;
+        };
+        defer allocator.free(line);
 
-    // Process the request and generate response
-    const response_json = processRequest(allocator, parsed.value) catch |err| {
-        // Log error to stderr for debugging
-        var stderr_buffer: [1024]u8 = undefined;
-        const msg = std.fmt.bufPrint(&stderr_buffer, "Error processing request: {}\n", .{err}) catch "Error\n";
-        _ = stderr.write(msg) catch {};
+        // Skip empty lines
+        if (line.len == 0) continue;
+
+        // Parse JSON request
+        var parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch |err| {
+            // Log parse error to stderr
+            var err_buf: [256]u8 = undefined;
+            const err_msg = std.fmt.bufPrint(&err_buf, "JSON parse error: {}\n", .{err}) catch "Parse error\n";
+            _ = stderr.write(err_msg) catch {};
+            continue;
+        };
+        defer parsed.deinit();
+
+        // Process the request and generate response
+        const response_json = processRequest(allocator, parsed.value) catch |err| {
+            // Log error to stderr for debugging
+            var err_buf: [256]u8 = undefined;
+            const err_msg = std.fmt.bufPrint(&err_buf, "Error: {}\n", .{err}) catch "Error\n";
+            _ = stderr.write(err_msg) catch {};
+            continue;
+        };
+        defer allocator.free(response_json);
+
+        // Write response to stdout with newline
+        _ = try stdout.write(response_json);
+        _ = try stdout.write("\n");
+    }
+}
+
+/// Read a line from the reader, allocating as needed for large lines
+fn readLine(allocator: std.mem.Allocator, reader: *std.fs.File.Reader) ![]u8 {
+    var line_buffer = std.ArrayList(u8){};
+    errdefer line_buffer.deinit(allocator);
+
+    // Use takeDelimiter to efficiently read until newline
+    // This handles the buffering internally
+    const line_slice = reader.interface.takeDelimiter('\n') catch |err| {
+        if (err == error.ReadFailed) {
+            // End of stream without delimiter
+            const remaining = reader.interface.buffered();
+            if (remaining.len == 0 and line_buffer.items.len == 0) {
+                return error.EndOfStream;
+            }
+            // Return any buffered data
+            try line_buffer.appendSlice(allocator, remaining);
+            reader.interface.tossBuffered();
+            return try line_buffer.toOwnedSlice(allocator);
+        }
+        if (err == error.StreamTooLong) {
+            // Line longer than buffer - accumulate and continue
+            const buffered = reader.interface.buffered();
+            try line_buffer.appendSlice(allocator, buffered);
+            reader.interface.tossBuffered();
+
+            // Safety limit - 10MB max line
+            if (line_buffer.items.len > 10 * 1024 * 1024) {
+                return error.StreamTooLong;
+            }
+
+            // Recursively continue reading
+            const rest = try readLine(allocator, reader);
+            defer allocator.free(rest);
+            try line_buffer.appendSlice(allocator, rest);
+            return try line_buffer.toOwnedSlice(allocator);
+        }
         return err;
     };
-    defer allocator.free(response_json);
 
-    // Write response to stdout
-    _ = try stdout.write(response_json);
+    // Got a complete line (or null for EOF with no data)
+    if (line_slice) |slice| {
+        // If we had accumulated data, combine it
+        if (line_buffer.items.len > 0) {
+            try line_buffer.appendSlice(allocator, slice);
+            return try line_buffer.toOwnedSlice(allocator);
+        }
+        // Otherwise, copy the slice (it's from internal buffer)
+        return try allocator.dupe(u8, slice);
+    } else {
+        // EOF with no data
+        if (line_buffer.items.len == 0) {
+            return error.EndOfStream;
+        }
+        return try line_buffer.toOwnedSlice(allocator);
+    }
 }
 
 /// Process an MCP request and return JSON response
 fn processRequest(allocator: std.mem.Allocator, request_value: std.json.Value) ![]u8 {
+    // Extract method from request
+    const method = if (request_value.object.get("method")) |m|
+        m.string
+    else
+        return error.InvalidRequest;
+
+    const id = if (request_value.object.get("id")) |i| i else return error.InvalidRequest;
+
+    // Handle different MCP methods
+    if (std.mem.eql(u8, method, "initialize")) {
+        return handleInitialize(allocator, id);
+    } else if (std.mem.eql(u8, method, "tools/list")) {
+        return handleToolsList(allocator, id);
+    } else if (std.mem.eql(u8, method, "tools/call")) {
+        return handleToolsCall(allocator, request_value, id);
+    } else {
+        return error.MethodNotFound;
+    }
+}
+
+/// Handle MCP initialize request
+fn handleInitialize(allocator: std.mem.Allocator, id: std.json.Value) ![]u8 {
+    // Handle id as integer (most common case)
+    const id_int = if (id == .integer) id.integer else 1;
+
+    const response = try std.fmt.allocPrint(allocator,
+        \\{{"jsonrpc":"2.0","id":{d},"result":{{"protocolVersion":"2024-11-05","serverInfo":{{"name":"stump","version":"1.0.0"}},"capabilities":{{"tools":{{"list":true,"call":true,"listChanged":true}}}}}}}}
+    , .{id_int});
+
+    return response;
+}
+
+/// Handle MCP tools/list request
+fn handleToolsList(allocator: std.mem.Allocator, id: std.json.Value) ![]u8 {
+    // Handle id as integer (most common case)
+    const id_int = if (id == .integer) id.integer else 1;
+
+    const response = try std.fmt.allocPrint(allocator,
+        \\{{"jsonrpc":"2.0","id":{d},"result":{{"tools":[{{"name":"stump","description":"Token-efficient directory tree visualization","inputSchema":{{"type":"object","properties":{{"dir":{{"type":"string","description":"Root directory to scan"}},"depth":{{"type":"integer","description":"Max traversal depth (-1 for unlimited)"}},"include_ext":{{"type":"array","items":{{"type":"string"}}}},"exclude_ext":{{"type":"array","items":{{"type":"string"}}}},"exclude_patterns":{{"type":"array","items":{{"type":"string"}}}},"show_hidden":{{"type":"boolean"}},"show_size":{{"type":"boolean"}},"follow_symlinks":{{"type":"boolean"}},"force":{{"type":"boolean"}},"performance":{{"type":"boolean"}},"output_file":{{"type":"string"}},"token_limit":{{"type":"integer"}}}},"required":["dir"]}}}}]}}}}
+    , .{id_int});
+
+    return response;
+}
+
+/// Handle MCP tools/call request
+fn handleToolsCall(allocator: std.mem.Allocator, request_value: std.json.Value, id: std.json.Value) ![]u8 {
     // Extract arguments from request
     const arguments = if (request_value.object.get("params")) |params|
         if (params.object.get("arguments")) |args| args else return error.InvalidRequest
@@ -71,8 +194,37 @@ fn processRequest(allocator: std.mem.Allocator, request_value: std.json.Value) !
 
     // Execute the main algorithm
     const result_json = try executeStump(allocator, &config, &perf_tracker);
+    defer allocator.free(result_json);
 
-    return result_json;
+    // Handle id as integer (most common case)
+    const id_int = if (id == .integer) id.integer else 1;
+
+    const response = try std.fmt.allocPrint(allocator,
+        \\{{"jsonrpc":"2.0","id":{d},"result":{{"content":[{{"type":"text","text":{s}}}]}}}}
+    , .{ id_int, result_json });
+
+    return response;
+}
+
+/// Helper to parse string arrays from JSON with proper cleanup on error
+fn parseStringArray(allocator: std.mem.Allocator, array: std.json.Array) ![]const []const u8 {
+    var list = try allocator.alloc([]const u8, array.items.len);
+    errdefer allocator.free(list);
+
+    var allocated_count: usize = 0;
+    errdefer {
+        // Free all successfully allocated items on error
+        for (list[0..allocated_count]) |item| {
+            allocator.free(item);
+        }
+    }
+
+    for (array.items, 0..) |item, i| {
+        list[i] = try allocator.dupe(u8, item.string);
+        allocated_count += 1;
+    }
+
+    return list;
 }
 
 /// Parse configuration from MCP arguments
@@ -107,38 +259,17 @@ fn parseConfig(allocator: std.mem.Allocator, args: std.json.Value) !types.Config
 
     // Parse include_ext
     if (args.object.get("include_ext")) |ext_value| {
-        const ext_array = ext_value.array;
-        var ext_list = try allocator.alloc([]const u8, ext_array.items.len);
-        errdefer allocator.free(ext_list);
-
-        for (ext_array.items, 0..) |item, i| {
-            ext_list[i] = try allocator.dupe(u8, item.string);
-        }
-        config.include_ext = ext_list;
+        config.include_ext = try parseStringArray(allocator, ext_value.array);
     }
 
     // Parse exclude_ext
     if (args.object.get("exclude_ext")) |ext_value| {
-        const ext_array = ext_value.array;
-        var ext_list = try allocator.alloc([]const u8, ext_array.items.len);
-        errdefer allocator.free(ext_list);
-
-        for (ext_array.items, 0..) |item, i| {
-            ext_list[i] = try allocator.dupe(u8, item.string);
-        }
-        config.exclude_ext = ext_list;
+        config.exclude_ext = try parseStringArray(allocator, ext_value.array);
     }
 
     // Parse exclude_patterns
     if (args.object.get("exclude_patterns")) |pattern_value| {
-        const pattern_array = pattern_value.array;
-        var pattern_list = try allocator.alloc([]const u8, pattern_array.items.len);
-        errdefer allocator.free(pattern_list);
-
-        for (pattern_array.items, 0..) |item, i| {
-            pattern_list[i] = try allocator.dupe(u8, item.string);
-        }
-        config.exclude_patterns = pattern_list;
+        config.exclude_patterns = try parseStringArray(allocator, pattern_value.array);
     }
 
     // Parse boolean flags
@@ -201,12 +332,8 @@ fn executeStump(
 
         // Handle large directory fatal error
         if (err == error.LargeDirectory) {
-            const fatal_error = try errors.buildLargeDirectoryError(allocator, config.dir);
-            defer {
-                allocator.free(fatal_error.error_name);
-                allocator.free(fatal_error.path);
-                allocator.free(fatal_error.message);
-            }
+            var fatal_error = try errors.buildLargeDirectoryError(allocator, config.dir);
+            defer fatal_error.deinit(allocator);
             return try output.serializeFatalError(allocator, &fatal_error);
         }
 

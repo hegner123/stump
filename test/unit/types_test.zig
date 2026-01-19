@@ -1,6 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
-const types = @import("../../src/types.zig");
+const types = @import("stump").types;
 
 test "EntryType.toChar returns correct characters" {
     try testing.expectEqual(@as(u8, 'f'), types.EntryType.file.toChar());
@@ -130,8 +130,8 @@ test "ErrorEntry deinit frees allocated memory" {
     // Memory leak detection will catch if anything isn't freed
 }
 
-test "Statistics initialization" {
-    const stats = types.Statistics{
+test "Stats initialization" {
+    const stats = types.Stats{
         .dirs = 10,
         .files = 25,
         .filtered = 3,

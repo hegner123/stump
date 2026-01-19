@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
-const errors = @import("../../src/errors.zig");
-const types = @import("../../src/types.zig");
+const errors = @import("stump").errors;
+const types = @import("stump").types;
 
 test "isValidUtf8 accepts valid UTF-8 strings" {
     try testing.expect(errors.isValidUtf8("hello"));
@@ -21,80 +21,89 @@ test "isValidUtf8 rejects invalid UTF-8 sequences" {
 }
 
 test "FatalError.init creates correct structure for large_directory" {
-    const err = types.FatalError.init(.large_directory, "/usr", "Test message");
+    const allocator = testing.allocator;
 
-    try testing.expectEqualStrings("Large directory detected", err.@"error");
-    try testing.expectEqualStrings("large_directory", err.type);
-    try testing.expect(err.path != null);
-    try testing.expectEqualStrings("/usr", err.path.?);
+    var err = try types.FatalError.init(allocator, .large_directory, "/usr", "Test message");
+    defer err.deinit(allocator);
+
+    try testing.expectEqualStrings("Large directory detected", err.error_name);
+    try testing.expectEqual(types.ErrorType.large_directory, err.type);
+    try testing.expectEqualStrings("/usr", err.path);
     try testing.expectEqualStrings("Test message", err.message);
 }
 
 test "FatalError.init creates correct structure for non_utf8_filename" {
-    const err = types.FatalError.init(.non_utf8_filename, "/bad/file", "Test message");
+    const allocator = testing.allocator;
 
-    try testing.expectEqualStrings("Invalid filename encoding", err.@"error");
-    try testing.expectEqualStrings("non_utf8_filename", err.type);
-    try testing.expect(err.path != null);
-    try testing.expectEqualStrings("/bad/file", err.path.?);
+    var err = try types.FatalError.init(allocator, .non_utf8_filename, "/bad/file", "Test message");
+    defer err.deinit(allocator);
+
+    try testing.expectEqualStrings("Invalid filename encoding", err.error_name);
+    try testing.expectEqual(types.ErrorType.non_utf8_filename, err.type);
+    try testing.expectEqualStrings("/bad/file", err.path);
 }
 
 test "FatalError.init creates correct structure for symlink_cycle" {
-    const err = types.FatalError.init(.symlink_cycle, "/link/cycle", "Test message");
+    const allocator = testing.allocator;
 
-    try testing.expectEqualStrings("Symlink cycle detected", err.@"error");
-    try testing.expectEqualStrings("symlink_cycle", err.type);
-    try testing.expect(err.path != null);
-    try testing.expectEqualStrings("/link/cycle", err.path.?);
-}
+    var err = try types.FatalError.init(allocator, .symlink_cycle, "/link/cycle", "Test message");
+    defer err.deinit(allocator);
 
-test "FatalError.init handles null path" {
-    const err = types.FatalError.init(.large_directory, null, "Test message");
-
-    try testing.expectEqualStrings("Large directory detected", err.@"error");
-    try testing.expect(err.path == null);
+    try testing.expectEqualStrings("Symlink cycle detected", err.error_name);
+    try testing.expectEqual(types.ErrorType.symlink_cycle, err.type);
+    try testing.expectEqualStrings("/link/cycle", err.path);
 }
 
 test "buildLargeDirectoryError creates valid error" {
     const allocator = testing.allocator;
 
-    const err = try errors.buildLargeDirectoryError(allocator, "/usr");
-    defer allocator.free(err.message);
+    var err = try errors.buildLargeDirectoryError(allocator, "/usr");
+    defer err.deinit(allocator);
 
-    try testing.expectEqualStrings("Large directory detected", err.@"error");
-    try testing.expectEqualStrings("large_directory", err.type);
-    try testing.expect(err.path != null);
-    try testing.expectEqualStrings("/usr", err.path.?);
+    try testing.expectEqualStrings("Large directory detected", err.error_name);
+    try testing.expectEqual(types.ErrorType.large_directory, err.type);
+    try testing.expectEqualStrings("/usr", err.path);
     try testing.expect(std.mem.indexOf(u8, err.message, "force: true") != null);
 }
 
 test "buildNonUtf8Error creates valid error" {
     const allocator = testing.allocator;
 
-    const err = try errors.buildNonUtf8Error(allocator, "/bad/file");
-    defer allocator.free(err.message);
+    var err = try errors.buildNonUtf8Error(allocator, "/bad/file");
+    defer err.deinit(allocator);
 
-    try testing.expectEqualStrings("Invalid filename encoding", err.@"error");
-    try testing.expectEqualStrings("non_utf8_filename", err.type);
+    try testing.expectEqualStrings("Invalid filename encoding", err.error_name);
+    try testing.expectEqual(types.ErrorType.non_utf8_filename, err.type);
     try testing.expect(std.mem.indexOf(u8, err.message, "UTF-8") != null);
 }
 
 test "buildSymlinkCycleError creates valid error" {
     const allocator = testing.allocator;
 
-    const err = try errors.buildSymlinkCycleError(allocator, "/link/cycle");
-    defer allocator.free(err.message);
+    var err = try errors.buildSymlinkCycleError(allocator, "/link/cycle");
+    defer err.deinit(allocator);
 
-    try testing.expectEqualStrings("Symlink cycle detected", err.@"error");
-    try testing.expectEqualStrings("symlink_cycle", err.type);
+    try testing.expectEqualStrings("Symlink cycle detected", err.error_name);
+    try testing.expectEqual(types.ErrorType.symlink_cycle, err.type);
     try testing.expect(std.mem.indexOf(u8, err.message, "cycle") != null);
 }
 
 test "buildTokenLimitError creates valid error JSON" {
     const allocator = testing.allocator;
 
-    const result = try errors.buildTokenLimitError(allocator, 10, 50, 5000, 10000);
-    defer result.object.deinit();
+    var result = try errors.buildTokenLimitError(allocator, 10, 50, 5000, 10000);
+    defer {
+        // Clean up the JSON object and all nested objects
+        if (result.object.get("message")) |msg| {
+            allocator.free(msg.string);
+        }
+        // Clean up nested stats object
+        if (result.object.get("stats")) |stats_val| {
+            var stats_obj = stats_val.object;
+            stats_obj.deinit();
+        }
+        result.object.deinit();
+    }
 
     try testing.expect(result == .object);
 

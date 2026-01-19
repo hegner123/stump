@@ -1,6 +1,13 @@
 const std = @import("std");
 const testing = std.testing;
-const performance = @import("../../src/performance.zig");
+const performance = @import("stump").performance;
+
+/// Helper function to sleep for a given number of nanoseconds
+fn sleep(nanoseconds: u64) void {
+    const seconds = nanoseconds / std.time.ns_per_s;
+    const ns = nanoseconds % std.time.ns_per_s;
+    std.posix.nanosleep(seconds, ns);
+}
 
 test "Timer.start creates timer with current timestamp" {
     const timer = performance.Timer.start();
@@ -9,7 +16,7 @@ test "Timer.start creates timer with current timestamp" {
 
 test "Timer.elapsedMs measures time in milliseconds" {
     const timer = performance.Timer.start();
-    std.time.sleep(2 * std.time.ns_per_ms); // Sleep 2ms
+    sleep(2 * std.time.ns_per_ms); // Sleep 2ms
     const elapsed = timer.elapsedMs();
     // Should be at least 1ms (accounting for timing precision)
     try testing.expect(elapsed >= 1);
@@ -17,7 +24,7 @@ test "Timer.elapsedMs measures time in milliseconds" {
 
 test "Timer.elapsedUs measures time in microseconds" {
     const timer = performance.Timer.start();
-    std.time.sleep(1 * std.time.ns_per_ms); // Sleep 1ms = 1000us
+    sleep(1 * std.time.ns_per_ms); // Sleep 1ms = 1000us
     const elapsed = timer.elapsedUs();
     // Should be at least 500us
     try testing.expect(elapsed >= 500);
@@ -25,7 +32,7 @@ test "Timer.elapsedUs measures time in microseconds" {
 
 test "Timer.elapsedNs measures time in nanoseconds" {
     const timer = performance.Timer.start();
-    std.time.sleep(1 * std.time.ns_per_ms);
+    sleep(1 * std.time.ns_per_ms);
     const elapsed = timer.elapsedNs();
     // Should be at least 500,000ns
     try testing.expect(elapsed >= 500_000);
@@ -59,7 +66,7 @@ test "PerformanceTracker accumulates traversal time" {
     var tracker = performance.PerformanceTracker.init(allocator, true);
 
     tracker.startTraversal();
-    std.time.sleep(1 * std.time.ns_per_ms);
+    sleep(1 * std.time.ns_per_ms);
     tracker.stopTraversal();
 
     try testing.expect(tracker.traversal_time_ns > 0);
@@ -67,7 +74,7 @@ test "PerformanceTracker accumulates traversal time" {
     // Accumulate more time
     const first_time = tracker.traversal_time_ns;
     tracker.startTraversal();
-    std.time.sleep(1 * std.time.ns_per_ms);
+    sleep(1 * std.time.ns_per_ms);
     tracker.stopTraversal();
 
     try testing.expect(tracker.traversal_time_ns > first_time);
@@ -78,7 +85,7 @@ test "PerformanceTracker accumulates filtering time" {
     var tracker = performance.PerformanceTracker.init(allocator, true);
 
     tracker.startFiltering();
-    std.time.sleep(1 * std.time.ns_per_ms);
+    sleep(1 * std.time.ns_per_ms);
     tracker.stopFiltering();
 
     try testing.expect(tracker.filtering_time_ns > 0);
@@ -89,7 +96,7 @@ test "PerformanceTracker accumulates serialization time" {
     var tracker = performance.PerformanceTracker.init(allocator, true);
 
     tracker.startSerialization();
-    std.time.sleep(1 * std.time.ns_per_ms);
+    sleep(1 * std.time.ns_per_ms);
     tracker.stopSerialization();
 
     try testing.expect(tracker.serialization_time_ns > 0);

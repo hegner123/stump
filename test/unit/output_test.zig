@@ -1,6 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
-const output = @import("../../src/output.zig");
+const output = @import("stump").output;
 
 test "generateUUID creates valid UUID format" {
     const uuid = output.generateUUID();

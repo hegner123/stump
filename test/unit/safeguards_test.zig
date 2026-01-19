@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
-const safeguards = @import("../../src/safeguards.zig");
+const safeguards = @import("stump").safeguards;
+const types = @import("stump").types;
 
 test "isValidUtf8 accepts valid UTF-8 strings" {
     try testing.expect(safeguards.isValidUtf8("hello"));
@@ -23,11 +24,16 @@ test "SafeguardResult.isOk returns true for ok variant" {
 }
 
 test "SafeguardResult.isOk returns false for fatal_error variant" {
-    const fatal_error = @import("../../src/types.zig").FatalError.init(
+    const allocator = testing.allocator;
+
+    var fatal_error = try types.FatalError.init(
+        allocator,
         .large_directory,
         "/usr",
-        "Test error"
+        "Test error",
     );
+    defer fatal_error.deinit(allocator);
+
     const result = safeguards.SafeguardResult{ .fatal_error = fatal_error };
     try testing.expect(!result.isOk());
 }
@@ -44,12 +50,17 @@ test "checkLargeDirectory blocks large directories with force=false" {
     const allocator = testing.allocator;
 
     // Root directory should be blocked without force
-    const result = try safeguards.checkLargeDirectory("/", false, allocator);
+    var result = try safeguards.checkLargeDirectory("/", false, allocator);
+    defer switch (result) {
+        .fatal_error => |*err| err.deinit(allocator),
+        .ok => {},
+    };
+
     try testing.expect(!result.isOk());
 
     switch (result) {
         .fatal_error => |err| {
-            try testing.expectEqualStrings("large_directory", err.type);
+            try testing.expectEqual(types.ErrorType.large_directory, err.type);
             try testing.expect(std.mem.indexOf(u8, err.message, "force: true") != null);
         },
         .ok => unreachable,
@@ -71,32 +82,48 @@ test "checkLargeDirectory allows safe directories" {
     try testing.expect(result.isOk());
 }
 
-test "checkFilenameUtf8 returns ok for valid UTF-8" {
+test "validateFilenameUtf8 returns ok for valid UTF-8" {
     const allocator = testing.allocator;
 
-    const result = try safeguards.checkFilenameUtf8("valid_file.txt", false, allocator);
-    try testing.expect(result.isOk());
-}
-
-test "checkFilenameUtf8 returns fatal_error for invalid UTF-8 when force=false" {
-    const allocator = testing.allocator;
-
-    const invalid = [_]u8{ 'f', 'i', 'l', 'e', 0xFF, 0xFE };
-    const result = try safeguards.checkFilenameUtf8(&invalid, false, allocator);
-    try testing.expect(!result.isOk());
-
+    const result = try safeguards.validateFilenameUtf8("valid_file.txt", false, allocator);
     switch (result) {
-        .fatal_error => |err| {
-            try testing.expectEqualStrings("non_utf8_filename", err.type);
-        },
-        .ok => unreachable,
+        .ok => {},
+        else => try testing.expect(false),
     }
 }
 
-test "checkFilenameUtf8 allows invalid UTF-8 with force=true" {
+test "validateFilenameUtf8 returns fatal_error for invalid UTF-8 when force=false" {
     const allocator = testing.allocator;
 
     const invalid = [_]u8{ 'f', 'i', 'l', 'e', 0xFF, 0xFE };
-    const result = try safeguards.checkFilenameUtf8(&invalid, true, allocator);
-    try testing.expect(result.isOk());
+    var result = try safeguards.validateFilenameUtf8(&invalid, false, allocator);
+    defer switch (result) {
+        .fatal_error => |*err| err.deinit(allocator),
+        else => {},
+    };
+
+    switch (result) {
+        .fatal_error => |err| {
+            try testing.expectEqual(types.ErrorType.non_utf8_filename, err.type);
+        },
+        else => try testing.expect(false),
+    }
+}
+
+test "validateFilenameUtf8 returns error_entry for invalid UTF-8 when force=true" {
+    const allocator = testing.allocator;
+
+    const invalid = [_]u8{ 'f', 'i', 'l', 'e', 0xFF, 0xFE };
+    var result = try safeguards.validateFilenameUtf8(&invalid, true, allocator);
+    defer switch (result) {
+        .error_entry => |*entry| entry.deinit(allocator),
+        else => {},
+    };
+
+    switch (result) {
+        .error_entry => |entry| {
+            try testing.expectEqual(types.ErrorType.non_utf8_filename, entry.type);
+        },
+        else => try testing.expect(false),
+    }
 }

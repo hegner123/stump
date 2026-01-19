@@ -1,26 +1,16 @@
 const std = @import("std");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
+const config = @import("config.zig");
 
-/// Large directory paths that should trigger warnings
-/// These directories typically contain thousands or millions of files
-const LARGE_DIRECTORIES = [_][]const u8{
-    // Unix/Linux/macOS system directories
-    "/",
-    "/usr",
-    "/var",
-    "/home",
-    "/System",
-    "/Library",
-    "/Applications",
-    "/opt",
-    "/etc",
-};
+// Re-export LARGE_DIRECTORIES for any code that expects it here
+// (canonical definition is in config.zig)
+pub const LARGE_DIRECTORIES = config.LARGE_DIRECTORIES;
 
 /// Result type for safeguard checks
 pub const SafeguardResult = union(enum) {
     ok: void,
-    fatal_error: errors.FatalError,
+    fatal_error: types.FatalError,
 
     pub fn isOk(self: SafeguardResult) bool {
         return switch (self) {
@@ -30,59 +20,19 @@ pub const SafeguardResult = union(enum) {
     }
 };
 
-/// Check if a path is a large directory that should trigger a warning
-/// Returns true if the path matches a known large directory
-fn isLargeDirectory(path: []const u8, allocator: std.mem.Allocator) !bool {
-    // Resolve to canonical path (handles symlinks, relative paths, etc.)
-    const canonical = std.fs.cwd().realpathAlloc(allocator, path) catch |err| {
-        // If we can't resolve the path, it might not exist or be inaccessible
-        // In this case, we don't consider it a large directory
-        switch (err) {
-            error.FileNotFound, error.AccessDenied => return false,
-            else => return err,
-        }
-    };
-    defer allocator.free(canonical);
-
-    // Check against known large directories (exact match)
-    for (LARGE_DIRECTORIES) |large_dir| {
-        if (std.mem.eql(u8, canonical, large_dir)) {
-            return true;
-        }
-    }
-
-    // Check if it's a user home directory (platform-specific)
-    if (try isUserHomeDirectory(canonical, allocator)) {
-        return true;
-    }
-
-    return false;
-}
-
-/// Check if a path is a user home directory
-fn isUserHomeDirectory(canonical_path: []const u8, allocator: std.mem.Allocator) !bool {
-    // Get the HOME environment variable
-    const home = std.posix.getenv("HOME") orelse return false;
-
-    // Resolve HOME to canonical path
-    const canonical_home = std.fs.cwd().realpathAlloc(allocator, home) catch return false;
-    defer allocator.free(canonical_home);
-
-    // Compare paths
-    return std.mem.eql(u8, canonical_path, canonical_home);
-}
-
 /// Check for large directory and return fatal error if detected and force is false
 pub fn checkLargeDirectory(path: []const u8, force: bool, allocator: std.mem.Allocator) !SafeguardResult {
-    const is_large = try isLargeDirectory(path, allocator);
+    const is_large = try config.isLargeDirectory(allocator, path);
 
     if (is_large and !force) {
         // Return fatal error
+        const message = "Refusing to traverse large directory that may contain thousands of files. Recommendations: (1) Use 'depth' parameter to limit traversal, (2) Use filters to reduce scope, (3) Use 'output_file' to save results, or (4) Set 'force: true' to proceed anyway.";
         return SafeguardResult{
-            .fatal_error = errors.FatalError.init(
+            .fatal_error = try types.FatalError.init(
+                allocator,
                 .large_directory,
                 path,
-                "Refusing to traverse large directory that may contain thousands of files. Recommendations: (1) Use 'depth' parameter to limit traversal, (2) Use filters to reduce scope, (3) Use 'output_file' to save results, or (4) Set 'force: true' to proceed anyway.",
+                message,
             ),
         };
     }
@@ -105,18 +55,19 @@ pub fn validateFilenameUtf8(
     allocator: std.mem.Allocator,
 ) !union(enum) {
     ok: void,
-    fatal_error: errors.FatalError,
-    error_entry: errors.ErrorEntry,
+    fatal_error: types.FatalError,
+    error_entry: types.ErrorEntry,
 } {
     if (!isValidUtf8(path)) {
         if (!force) {
             // Fatal error - abort execution
+            const message = "Encountered filename with invalid UTF-8 encoding. This may indicate a legacy file, corrupted filesystem, or unusual naming. Use 'force: true' to skip this file and continue.";
             return .{
-                .fatal_error = try errors.FatalError.init(
+                .fatal_error = try types.FatalError.init(
+                    allocator,
                     .non_utf8_filename,
                     path,
-                    "Encountered filename with invalid UTF-8 encoding. This may indicate a legacy file, corrupted filesystem, or unusual naming. Use 'force: true' to skip this file and continue.",
-                    allocator,
+                    message,
                 ),
             };
         } else {
@@ -154,12 +105,13 @@ pub fn validatePath(path: []const u8, force: bool, allocator: std.mem.Allocator)
             // For path validation, we treat UTF-8 errors as fatal regardless
             // because we can't proceed with an invalid path
             // (individual filenames can be skipped, but not the root path)
+            const message = "Root directory path contains invalid UTF-8 encoding. Cannot proceed.";
             return SafeguardResult{
-                .fatal_error = try errors.FatalError.init(
+                .fatal_error = try types.FatalError.init(
+                    allocator,
                     .non_utf8_filename,
                     path,
-                    "Root directory path contains invalid UTF-8 encoding. Cannot proceed.",
-                    allocator,
+                    message,
                 ),
             };
         },
@@ -190,11 +142,11 @@ test "isLargeDirectory - system paths" {
     const allocator = std.testing.allocator;
 
     // Test root directory
-    const is_root_large = try isLargeDirectory("/", allocator);
+    const is_root_large = try config.isLargeDirectory(allocator, "/");
     try std.testing.expect(is_root_large);
 
     // Test /usr
-    const is_usr_large = try isLargeDirectory("/usr", allocator);
+    const is_usr_large = try config.isLargeDirectory(allocator, "/usr");
     try std.testing.expect(is_usr_large);
 }
 
@@ -202,20 +154,20 @@ test "isLargeDirectory - non-large paths" {
     const allocator = std.testing.allocator;
 
     // Test a typical project directory (should not be large)
-    const is_tmp_large = try isLargeDirectory("/tmp/test", allocator);
+    const is_tmp_large = config.isLargeDirectory(allocator, "/tmp/test") catch false;
     try std.testing.expect(!is_tmp_large);
 }
 
 test "checkLargeDirectory - with force false" {
     const allocator = std.testing.allocator;
 
-    const result = try checkLargeDirectory("/", false, allocator);
+    var result = try checkLargeDirectory("/", false, allocator);
     defer if (!result.isOk()) {
         result.fatal_error.deinit(allocator);
     };
 
     try std.testing.expect(!result.isOk());
-    try std.testing.expect(result.fatal_error.err_type == .large_directory);
+    try std.testing.expect(result.fatal_error.type == .large_directory);
 }
 
 test "checkLargeDirectory - with force true" {
@@ -239,15 +191,15 @@ test "validateFilenameUtf8 - invalid without force" {
     const allocator = std.testing.allocator;
 
     const invalid = [_]u8{ 'f', 'i', 'l', 'e', 0xFF, 0xFE };
-    const result = try validateFilenameUtf8(&invalid, false, allocator);
+    var result = try validateFilenameUtf8(&invalid, false, allocator);
     defer switch (result) {
-        .fatal_error => |fatal| fatal.deinit(allocator),
+        .fatal_error => |*fatal| fatal.deinit(allocator),
         else => {},
     };
 
     switch (result) {
         .fatal_error => |fatal| {
-            try std.testing.expect(fatal.err_type == .non_utf8_filename);
+            try std.testing.expect(fatal.type == .non_utf8_filename);
         },
         else => try std.testing.expect(false),
     }
@@ -257,7 +209,7 @@ test "validateFilenameUtf8 - invalid with force" {
     const allocator = std.testing.allocator;
 
     const invalid = [_]u8{ 'f', 'i', 'l', 'e', 0xFF, 0xFE };
-    const result = try validateFilenameUtf8(&invalid, true, allocator);
+    var result = try validateFilenameUtf8(&invalid, true, allocator);
     defer switch (result) {
         .error_entry => |*entry| entry.deinit(allocator),
         else => {},
