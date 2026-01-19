@@ -1,5 +1,9 @@
 # Stump - Token-Efficient Directory Tree MCP Tool
 
+[![Test](https://github.com/hegner123/stump/actions/workflows/test.yml/badge.svg)](https://github.com/hegner123/stump/actions/workflows/test.yml)
+[![Release](https://github.com/hegner123/stump/actions/workflows/release.yml/badge.svg)](https://github.com/hegner123/stump/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A high-performance MCP server tool that provides compact, token-efficient directory tree visualization optimized for LLM consumption.
 
 ## Features
@@ -19,7 +23,7 @@ A high-performance MCP server tool that provides compact, token-efficient direct
 
 ### Prerequisites
 
-- Zig 0.15.0 or later
+- Zig 0.15.2 or later
 - Unix/Linux or macOS (v1 - Windows support planned for v2)
 
 ### Build
