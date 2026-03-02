@@ -18,13 +18,13 @@ A high-performance MCP server tool that provides compact, token-efficient direct
   - File mode for unlimited tree sizes
 - **Performance Metrics**: Optional detailed timing, memory, and filesystem operation tracking
 - **Error Resilience**: Distinguishes fatal warnings from non-fatal errors
+- **Cross-Platform**: macOS, Linux, and Windows
 
 ## Quick Start
 
 ### Prerequisites
 
 - Zig 0.15.2 or later
-- Unix/Linux or macOS
 
 ### Build
 
@@ -41,7 +41,7 @@ zig build release-fast   # Maximum performance
 zig build release-small  # Minimal binary size
 ```
 
-The compiled binary will be in `zig-out/bin/stump`.
+The compiled binary will be in `zig-out/bin/stump` (Unix) or `zig-out\bin\stump.exe` (Windows).
 
 ### CLI Usage
 
@@ -54,10 +54,6 @@ stump ~/projects -d 3             # Max depth 3
 stump src --exclude-ext log,tmp   # Filter extensions
 stump . --no-hidden               # Hide hidden files
 stump . -o tree.json              # Output to file
-
-# Install to PATH
-sudo cp zig-out/bin/stump /usr/local/bin/
-# Or use: make install
 ```
 
 Run `stump --help` for all options.
@@ -129,7 +125,7 @@ zig build test-integration
     "name": "stump",
     "arguments": {
       "dir": "~/projects/large-repo",
-      "output_file": "/tmp/tree-output.json"
+      "output_file": "tree-output.json"
     }
   }
 }
@@ -176,7 +172,7 @@ zig build test-integration
       "dir": "/home/user",
       "force": true,
       "depth": 2,
-      "output_file": "/tmp/home-tree.json"
+      "output_file": "home-tree.json"
     }
   }
 }
@@ -296,7 +292,7 @@ When `performance: true`:
 
 Unless `force: true` is set:
 
-1. **Large Directory Detection**: Refuses to traverse known large directories (/, /usr, /home, etc.)
+1. **Large Directory Detection**: Refuses to traverse known large directories (`/`, `/usr`, `/home` on Unix; `C:\`, `C:\Windows`, `C:\Users` on Windows)
 2. **Symlink Cycles**: When `follow_symlinks: true`, detects and blocks circular references
 3. **Non-UTF8 Filenames**: Invalid UTF-8 encoding in filenames
 
@@ -331,10 +327,19 @@ Compared to standard `tree` command output:
 
 ## Platform Support
 
-- macOS
-- Linux
+- macOS (x86_64, aarch64)
+- Linux (x86_64, aarch64)
+- Windows (x86_64)
 
-Windows is not supported.
+### Platform Notes
+
+| Feature | macOS/Linux | Windows |
+|---------|-------------|---------|
+| Symlink detection | Full support | Full support |
+| Symlink cycle detection | Device + inode pairs | File index (single volume) |
+| Hidden file detection | Dot-prefix convention | Dot-prefix convention |
+| Large directory safeguards | Unix system paths | Windows system paths |
+| Temp file output | `/tmp` | `%TEMP%` / `%TMP%` |
 
 ## Development
 
@@ -359,18 +364,11 @@ stump/
 │   ├── unit/             # Unit tests for each module
 │   ├── integration/      # End-to-end integration tests
 │   └── fixtures/         # Test directories (basic, deep, wide, symlinks, utf8)
-├── planning/             # Development planning docs
-│   ├── PLAN.md           # Main project specification
-│   ├── CONCURRENT-PLAN.md
-│   ├── AGENT-QUICKSTART.md
-│   └── SETUP-CHECKLIST.md
-├── ai/zig-reference/     # Zig stdlib reference docs
 ├── .github/workflows/    # CI/CD workflows
-│   ├── test.yml          # Test on push/PR
+│   ├── test.yml          # Test on push/PR (Linux, macOS, Windows)
 │   └── release.yml       # Build binaries on release
 ├── build.zig             # Zig build configuration
-├── Makefile              # Common commands
-├── START.md              # Project onboarding
+├── AGENTS.md             # AI agent development guide
 ├── README.md             # This file
 └── LICENSE               # MIT license
 ```
@@ -397,3 +395,4 @@ Built with AI-augmented concurrent development:
 - **1st Round Bug Fixes**: Claude Sonnet 4.5 with documentation by [@hegner123](https://github.com/hegner123)
 - **2nd Round Bug Fixes**: Claude Opus 4.5 with documentation by [@hegner123](https://github.com/hegner123)
 - **Final Bug Fixes & Tests**: Claude Opus 4.5
+- **Windows Compatibility**: Claude Opus 4.6

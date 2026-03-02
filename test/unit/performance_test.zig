@@ -4,9 +4,7 @@ const performance = @import("stump").performance;
 
 /// Helper function to sleep for a given number of nanoseconds
 fn sleep(nanoseconds: u64) void {
-    const seconds = nanoseconds / std.time.ns_per_s;
-    const ns = nanoseconds % std.time.ns_per_s;
-    std.posix.nanosleep(seconds, ns);
+    std.Thread.sleep(nanoseconds);
 }
 
 test "Timer.start creates timer with current timestamp" {
