@@ -121,7 +121,8 @@ fn splitCommaList(allocator: std.mem.Allocator, input: []const u8) ![]const []co
 
 /// Parse CLI arguments into config
 fn parseCliArgs(allocator: std.mem.Allocator) CliError!CliArgs {
-    var args_iter = std.process.args();
+    var args_iter = std.process.argsWithAllocator(allocator) catch return CliError.OutOfMemory;
+    defer args_iter.deinit();
     _ = args_iter.skip(); // Skip program name
 
     var result = CliArgs{
@@ -263,8 +264,9 @@ fn isStdinTerminal() bool {
 }
 
 /// Check if any CLI arguments were passed
-fn hasCliArgs() bool {
-    var args = std.process.args();
+fn hasCliArgs(allocator: std.mem.Allocator) bool {
+    var args = std.process.argsWithAllocator(allocator) catch return false;
+    defer args.deinit();
     _ = args.skip(); // Skip program name
     return args.next() != null;
 }
@@ -300,7 +302,7 @@ pub fn main() !u8 {
     const allocator = gpa.allocator();
 
     // Detect mode: CLI if arguments passed, otherwise MCP
-    if (hasCliArgs()) {
+    if (hasCliArgs(allocator)) {
         return runCliMode(allocator);
     }
 
