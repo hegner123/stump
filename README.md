@@ -24,7 +24,7 @@ A high-performance MCP server tool that provides compact, token-efficient direct
 ### Prerequisites
 
 - Zig 0.15.2 or later
-- Unix/Linux or macOS (v1 - Windows support planned for v2)
+- Unix/Linux or macOS
 
 ### Build
 
@@ -331,15 +331,10 @@ Compared to standard `tree` command output:
 
 ## Platform Support
 
-### v1 (Current)
+- macOS
+- Linux
 
-- Unix/Linux: Full support
-- macOS: Full support
-
-### v2 (Planned)
-
-- Windows: Full platform support
-- Gitignore awareness: Respect .gitignore patterns
+Windows is not supported.
 
 ## Development
 

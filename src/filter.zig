@@ -1,7 +1,17 @@
+/// Entry filtering logic applied during directory traversal.
+///
+/// Imported by tree.zig to decide whether each filesystem entry should be
+/// included in the output tree. Supports hidden-file filtering, extension
+/// include/exclude lists, and glob-based path exclusion patterns. All filter
+/// state is read-only after initialization from the Config.
 const std = @import("std");
 const types = @import("types.zig");
 
-/// Filter context holds all filtering rules
+/// Immutable snapshot of filter rules extracted from Config.
+///
+/// Created by tree.buildTree before traversal begins, then passed by
+/// pointer through traverseDirectory and processEntry. Avoids repeatedly
+/// accessing the full Config struct during the hot path.
 pub const FilterContext = struct {
     include_ext: ?[]const []const u8,
     exclude_ext: ?[]const []const u8,
@@ -60,9 +70,11 @@ fn extensionMatches(ext: []const u8, ext_list: []const []const u8) bool {
     return false;
 }
 
-/// Simple glob pattern matching
-/// Supports '*' (wildcard) and '?' (single char)
-/// Returns true if pattern matches the string
+/// Recursive glob pattern matcher supporting '*' (any sequence) and '?' (single char).
+///
+/// Used by matchesExcludePattern when an exclude pattern contains wildcard
+/// characters. Operates on the full relative path, not just the filename.
+/// Note: does not support '**' (multi-directory) or character classes.
 pub fn globMatch(pattern: []const u8, str: []const u8) bool {
     return globMatchImpl(pattern, str, 0, 0);
 }
@@ -147,8 +159,12 @@ pub fn basename(path: []const u8) []const u8 {
     return path;
 }
 
-/// Determine if an entry should be included based on filter rules
-/// Returns true if entry should be INCLUDED, false if it should be FILTERED OUT
+/// Central filter gate called for every entry in tree.processEntry.
+///
+/// Applies filters in order: hidden files, exclude patterns (glob or substring),
+/// then extension include/exclude lists. Extension filters only apply to files --
+/// directories always pass the extension check. Returns false to filter out
+/// the entry (incrementing stats.filtered in tree.processEntry).
 pub fn shouldInclude(ctx: *const FilterContext, path: []const u8, entry_type: types.EntryType) bool {
     const name = basename(path);
 
@@ -193,7 +209,11 @@ pub fn shouldInclude(ctx: *const FilterContext, path: []const u8, entry_type: ty
     return true;
 }
 
-/// Statistics tracking for filter efficiency
+/// Optional statistics for measuring how many entries the filter removes.
+///
+/// Not currently used during normal traversal -- the main stats.filtered
+/// counter in TraversalState serves that purpose. The efficiency percentage
+/// is consumed by PerformanceTracker.finalize when performance mode is on.
 pub const FilterStats = struct {
     total_checked: u64 = 0,
     filtered_out: u64 = 0,

@@ -1,6 +1,15 @@
+/// Core data types for the stump directory tree tool.
+///
+/// Defines all shared structs, enums, and state containers used across the
+/// codebase. Imported by every other module in the project. No module-level
+/// logic -- purely type definitions and their associated methods.
 const std = @import("std");
 
-/// Tree entry type
+/// Filesystem entry classification used throughout traversal and serialization.
+///
+/// Assigned in tree.zig during directory walking. Consumed by filter.zig to
+/// apply extension-based filtering (only files have extensions), and by
+/// output.zig to emit the single-character type code ("f", "d", "s") in JSON.
 pub const EntryType = enum {
     file,
     directory,
@@ -23,18 +32,27 @@ pub const EntryType = enum {
     }
 };
 
-/// Single tree entry in the output
+/// Single node in the output tree, representing one file, directory, or symlink.
+///
+/// Created by tree.addFileEntry and tree.addDirectoryEntry during traversal.
+/// Collected into TraversalState.tree_entries, then serialized by output.writeJson.
+/// The path is relative to the scan root directory.
 pub const TreeEntry = struct {
     path: []const u8,
     type: EntryType,
     size: ?u64 = null, // Only for files, optional
+    modified: ?i128 = null, // Unix timestamp in nanoseconds, optional
 
     pub fn deinit(self: *TreeEntry, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
     }
 };
 
-/// Symbolic link information (only when follow_symlinks: false)
+/// Recorded symlink with its resolved target path.
+///
+/// Created by symlink.detectSymlink when follow_symlinks is false. Collected
+/// into TraversalState.symlinks and serialized in the "symlinks_detected"
+/// JSON array by output.writeJson. Not populated when following symlinks.
 pub const SymlinkInfo = struct {
     path: []const u8,
     target: []const u8,
@@ -45,7 +63,12 @@ pub const SymlinkInfo = struct {
     }
 };
 
-/// Error type enumeration
+/// Categorizes errors encountered during traversal into fatal and non-fatal.
+///
+/// Fatal errors (large_directory, non_utf8_filename, symlink_cycle) halt
+/// execution unless force mode is enabled. Non-fatal errors are collected
+/// into TraversalState.errors and reported in the output JSON. Created by
+/// errors.zig factory functions, consumed by output.zig during serialization.
 pub const ErrorType = enum {
     // Fatal errors (block execution unless force: true)
     large_directory,
@@ -84,7 +107,12 @@ pub const ErrorType = enum {
     }
 };
 
-/// Non-fatal error entry
+/// A non-fatal error encountered during traversal that did not halt execution.
+///
+/// Created by errors.zig factory functions (createPermissionDeniedError, etc.)
+/// and by tree.zig error handlers. Collected in TraversalState.errors and
+/// serialized in the "errors" JSON array by output.writeJson.
+/// All string fields are owned and must be freed via deinit.
 pub const ErrorEntry = struct {
     type: ErrorType,
     path: []const u8,
@@ -127,7 +155,12 @@ pub const ErrorEntry = struct {
     }
 };
 
-/// Statistics about the traversal
+/// Counters accumulated during traversal, included in every output JSON.
+///
+/// Incremented by tree.addFileEntry, tree.addDirectoryEntry, and
+/// symlink.detectSymlink. Serialized by output.writeJson into the "stats"
+/// object. The aborted_at and token_limit fields are only populated when
+/// the token limit is exceeded during stdout-mode output.
 pub const Stats = struct {
     dirs: u64 = 0,
     files: u64 = 0,
@@ -137,7 +170,11 @@ pub const Stats = struct {
     token_limit: ?u64 = null, // Only set when token limit exceeded
 };
 
-/// Performance metrics (optional, only when performance: true)
+/// Detailed execution metrics, only populated when Config.performance is true.
+///
+/// Computed by PerformanceTracker.finalize in performance.zig at the end of
+/// execution. Stored in OutputData.performance and serialized by output.writeJson
+/// into the optional "performance" JSON object.
 pub const PerformanceMetrics = struct {
     // Execution time (milliseconds)
     total_ms: u64 = 0,
@@ -165,7 +202,8 @@ pub const PerformanceMetrics = struct {
     cache_hits: u64 = 0,
 };
 
-/// Sort options
+/// Tree entry sort order. Currently only .none is used in the codebase;
+/// the other variants are defined for future use.
 pub const SortOption = enum {
     none,
     name,
@@ -173,7 +211,12 @@ pub const SortOption = enum {
     type_then_name,
 };
 
-/// Configuration for tree traversal
+/// Configuration for a single tree traversal operation.
+///
+/// Constructed by main.parseCliArgs (CLI mode) or main.parseConfig (MCP mode).
+/// Passed to tree.buildTree to control traversal behavior. The resolved_token_limit
+/// and resolved_byte_limit fields are computed by config.resolveTokenLimit after
+/// merging the explicit parameter, STUMP_TOKEN_LIMIT env var, and default.
 pub const Config = struct {
     // Input parameters
     dir: []const u8,
@@ -183,6 +226,7 @@ pub const Config = struct {
     exclude_patterns: ?[]const []const u8 = null,
     show_hidden: bool = true,
     show_size: bool = true,
+    show_modified: bool = false,
     follow_symlinks: bool = false,
     force: bool = false,
     performance: bool = false,
@@ -220,7 +264,12 @@ pub const Config = struct {
     }
 };
 
-/// Complete JSON output structure
+/// Complete output payload assembled from traversal results before serialization.
+///
+/// Built by main.buildOutputData from TraversalState after traversal completes.
+/// Passed to output.serializeToStdout or output.serializeToFile for JSON encoding.
+/// Borrows tree entries, symlinks, and errors from TraversalState -- only root
+/// and _note are independently allocated.
 pub const OutputData = struct {
     root: []const u8,
     depth: i32,
@@ -259,8 +308,12 @@ pub const OutputData = struct {
     }
 };
 
-/// Fatal error response structure
-/// All string fields are owned by this struct and must be freed
+/// Fatal error that halts traversal (unless force mode is on).
+///
+/// Created by errors.buildLargeDirectoryError, errors.buildNonUtf8Error, or
+/// errors.buildSymlinkCycleError. Serialized by output.serializeFatalError
+/// into the JSON error response sent to stdout or MCP. All string fields are
+/// independently allocated and must be freed via deinit.
 pub const FatalError = struct {
     error_name: []const u8,
     type: ErrorType,
@@ -303,7 +356,10 @@ pub const FatalError = struct {
     }
 };
 
-/// File output success response
+/// Success response returned when output is written to a file instead of stdout.
+///
+/// Created by output.serializeToFile after writing the JSON tree to disk.
+/// Consumed by main.serializeFileSuccess to produce the final CLI/MCP response.
 pub const FileOutputSuccess = struct {
     success: bool,
     message: []const u8,
@@ -314,7 +370,11 @@ pub const FileOutputSuccess = struct {
     }
 };
 
-/// Visited path tracking for cycle detection (when follow_symlinks: true)
+/// Device-inode pair used for symlink cycle detection when follow_symlinks is true.
+///
+/// Computed by symlink.getDeviceInode from filesystem stat data. Stored in
+/// TraversalState.visited_paths (AutoHashMap keyed by this type) to track
+/// which real filesystem locations have already been traversed.
 pub const VisitedPath = struct {
     dev: u64, // device ID
     ino: u64, // inode number
@@ -329,7 +389,13 @@ pub const VisitedPath = struct {
     }
 };
 
-/// Traversal state
+/// Mutable state container for an in-progress directory traversal.
+///
+/// Initialized by TraversalState.init at the start of tree.buildTree.
+/// Passed by pointer through tree.traverseDirectory and tree.processEntry,
+/// accumulating tree entries, symlink records, errors, stats, and performance
+/// counters. After buildTree returns, main.buildOutputData borrows the
+/// collected slices to assemble OutputData for serialization.
 pub const TraversalState = struct {
     allocator: std.mem.Allocator,
     config: *const Config,

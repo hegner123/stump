@@ -1,4 +1,12 @@
+/// JSON serialization of traversal results and supporting output utilities.
+///
+/// Imported by main.zig to serialize OutputData to stdout or file, and to
+/// serialize fatal errors and token-limit errors. Also provides UUID generation
+/// for unique output filenames, token/byte estimation helpers, and the JsonWriter
+/// streaming abstraction (currently unused in the main code path -- writeJson
+/// uses ArrayList directly).
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const performance = @import("performance.zig");
 
@@ -45,8 +53,14 @@ pub fn generateUniqueFilename(allocator: std.mem.Allocator, base_path: ?[]const 
             return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ path, &uuid });
         }
     } else {
-        // Use temp directory with UUID
-        return try std.fmt.allocPrint(allocator, "/tmp/stump-{s}.json", .{&uuid});
+        if (comptime builtin.os.tag == .windows) {
+            const tmp_dir = std.process.getEnvVarOwned(allocator, "TEMP") catch
+                try std.process.getEnvVarOwned(allocator, "TMP");
+            defer allocator.free(tmp_dir);
+            return try std.fmt.allocPrint(allocator, "{s}\\stump-{s}.json", .{ tmp_dir, &uuid });
+        } else {
+            return try std.fmt.allocPrint(allocator, "/tmp/stump-{s}.json", .{&uuid});
+        }
     }
 }
 
@@ -60,7 +74,12 @@ pub fn calculateByteLimit(token_limit: u64) u64 {
     return token_limit * 4;
 }
 
-/// JSON writer for streaming output to file or memory
+/// Streaming JSON writer with optional byte-limit enforcement.
+///
+/// Designed as an abstraction for writing to either a file or an in-memory
+/// buffer with token limit checking. Not currently used in the main serialization
+/// path -- serializeToStdout and serializeToFile call writeJson with a plain
+/// ArrayList instead. Retained for potential future streaming output support.
 pub const JsonWriter = struct {
     allocator: std.mem.Allocator,
     buffer: std.ArrayList(u8),
@@ -124,7 +143,11 @@ pub const JsonWriter = struct {
     }
 };
 
-/// Serialize OutputData to JSON and write to stdout or file
+/// Serializes a complete OutputData payload to a JSON byte slice for stdout output.
+///
+/// Called by main.executeStump in stdout mode. Instruments serialization timing
+/// via perf_tracker. The caller checks the result length against the byte limit
+/// and falls back to serializeTokenLimitError if exceeded.
 pub fn serializeToStdout(
     allocator: std.mem.Allocator,
     data: *const types.OutputData,
@@ -144,7 +167,12 @@ pub fn serializeToStdout(
     return result;
 }
 
-/// Serialize OutputData to JSON and write to file
+/// Serializes OutputData to JSON and writes it to a uniquely-named output file.
+///
+/// Called by main.executeStump when Config.output_file is set. Generates a
+/// UUID-based filename to avoid overwrites (e.g., output-<uuid>.json), writes
+/// the full JSON, and returns a FileOutputSuccess with the actual filename
+/// and traversal stats.
 pub fn serializeToFile(
     allocator: std.mem.Allocator,
     data: *const types.OutputData,
@@ -181,7 +209,12 @@ pub fn serializeToFile(
     };
 }
 
-/// Write JSON to a buffer
+/// Core JSON serializer for the complete output payload.
+///
+/// Called by both serializeToStdout and serializeToFile. Manually constructs
+/// JSON (no std.json.stringify) to maintain precise control over field ordering,
+/// optional field omission, and compact output. Writes: root, depth, stats,
+/// tree array, and optional symlinks_detected, errors, performance, and _note.
 fn writeJson(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), data: *const types.OutputData) !void {
     const writer = buffer.writer(allocator);
 
@@ -221,6 +254,10 @@ fn writeJson(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), data: *co
         try writer.writeAll("\"");
         if (entry.size) |size| {
             try writer.print(",\"size\":{d}", .{size});
+        }
+        if (entry.modified) |mtime| {
+            const secs: i64 = @intCast(@divFloor(mtime, std.time.ns_per_s));
+            try writer.print(",\"modified\":{d}", .{secs});
         }
         try writer.writeAll("}");
     }
@@ -310,7 +347,11 @@ fn writeJsonString(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), s: 
     try writer.writeAll("\"");
 }
 
-/// Serialize a fatal error to JSON
+/// Serializes a FatalError (large directory, invalid UTF-8, symlink cycle) to JSON.
+///
+/// Called by main.executeStump when tree.buildTree returns error.LargeDirectory.
+/// The output is wrapped in buildToolContent by handleToolsCall for MCP mode,
+/// or written directly to stdout in CLI mode.
 pub fn serializeFatalError(
     allocator: std.mem.Allocator,
     fatal_error: *const types.FatalError,
@@ -334,7 +375,12 @@ pub fn serializeFatalError(
     return try buffer.toOwnedSlice(allocator);
 }
 
-/// Serialize token limit exceeded error to JSON
+/// Serializes the token-limit-exceeded error with partial stats and guidance.
+///
+/// Called by main.executeStump when the serialized output exceeds the resolved
+/// byte limit or when tree.buildTree returns error.TokenLimitExceeded during
+/// traversal. Includes the aborted byte count and token limit so the client
+/// can adjust parameters.
 pub fn serializeTokenLimitError(
     allocator: std.mem.Allocator,
     stats: *const types.Stats,
@@ -385,25 +431,25 @@ test "generateUniqueFilename" {
         const filename = try generateUniqueFilename(allocator, null);
         defer allocator.free(filename);
 
-        try std.testing.expect(std.mem.startsWith(u8, filename, "/tmp/stump-"));
+        try std.testing.expect(std.mem.indexOf(u8, filename, "stump-") != null);
         try std.testing.expect(std.mem.endsWith(u8, filename, ".json"));
     }
 
     // Test with path with extension
     {
-        const filename = try generateUniqueFilename(allocator, "/tmp/output.json");
+        const filename = try generateUniqueFilename(allocator, "output.json");
         defer allocator.free(filename);
 
-        try std.testing.expect(std.mem.startsWith(u8, filename, "/tmp/output-"));
+        try std.testing.expect(std.mem.startsWith(u8, filename, "output-"));
         try std.testing.expect(std.mem.endsWith(u8, filename, ".json"));
     }
 
     // Test with path without extension
     {
-        const filename = try generateUniqueFilename(allocator, "/tmp/output");
+        const filename = try generateUniqueFilename(allocator, "output");
         defer allocator.free(filename);
 
-        try std.testing.expect(std.mem.startsWith(u8, filename, "/tmp/output-"));
+        try std.testing.expect(std.mem.startsWith(u8, filename, "output-"));
     }
 }
 
@@ -439,7 +485,7 @@ test "serializeFatalError" {
     var fatal_error = try types.FatalError.init(
         allocator,
         .large_directory,
-        "/home/user",
+        "some/path",
         "Refusing to traverse",
     );
     defer fatal_error.deinit(allocator);

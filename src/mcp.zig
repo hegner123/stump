@@ -1,6 +1,16 @@
+/// JSON-RPC 2.0 and MCP protocol utilities for the stump MCP server.
+///
+/// Imported by main.zig to drive the stdio-based MCP request/response loop.
+/// Provides the protocol state machine (initialize -> initialized -> ready),
+/// JSON-RPC response builders, error code constants, and request cancellation
+/// tracking. Contains no filesystem or tree logic -- purely protocol concerns.
 const std = @import("std");
 
-/// MCP protocol state machine
+/// Tracks the MCP handshake lifecycle in main.zig's request loop.
+///
+/// Transitions: uninitialized -> initializing (on "initialize" request)
+/// -> ready (on "initialized" notification). Methods are rejected if
+/// called in the wrong state, producing JSON-RPC INVALID_REQUEST errors.
 pub const ProtocolState = enum {
     /// Initial state - only initialize allowed
     uninitialized,
@@ -13,9 +23,9 @@ pub const ProtocolState = enum {
     pub fn isMethodAllowed(self: ProtocolState, method: []const u8) bool {
         return switch (self) {
             .uninitialized => std.mem.eql(u8, method, "initialize"),
-            .initializing => std.mem.eql(u8, method, "initialized") or
-                std.mem.eql(u8, method, "notifications/cancelled"),
-            .ready => !std.mem.eql(u8, method, "initialize"),
+            // Allow all methods after initialize — some clients (e.g. Crush)
+            // skip the notifications/initialized step
+            .initializing, .ready => !std.mem.eql(u8, method, "initialize"),
         };
     }
 
@@ -23,19 +33,25 @@ pub const ProtocolState = enum {
     pub fn nextState(self: ProtocolState, method: []const u8) ProtocolState {
         return switch (self) {
             .uninitialized => if (std.mem.eql(u8, method, "initialize")) .initializing else self,
-            .initializing => if (std.mem.eql(u8, method, "initialized")) .ready else self,
+            .initializing => .ready,
             .ready => self,
         };
     }
 };
 
-/// Check if a method is a notification (no id field, no response expected)
+/// Identifies MCP notification methods that require no response.
+///
+/// Called by main.zig's request loop to decide whether to send a response
+/// or silently process the message. Notifications include "initialized"
+/// and any method prefixed with "notifications/" (e.g., "notifications/cancelled").
 pub fn isNotification(method: []const u8) bool {
     return std.mem.eql(u8, method, "initialized") or
         std.mem.startsWith(u8, method, "notifications/");
 }
 
-/// JSON-RPC 2.0 standard error codes
+/// JSON-RPC 2.0 error codes used by buildErrorResponse in main.zig's error
+/// handling paths. TOOL_NOT_FOUND is an application-defined code for when
+/// a tools/call request names a tool other than "stump".
 pub const JsonRpcError = struct {
     // Standard JSON-RPC 2.0 errors
     pub const PARSE_ERROR: i32 = -32700;
@@ -48,8 +64,12 @@ pub const JsonRpcError = struct {
     pub const TOOL_NOT_FOUND: i32 = -32001;
 };
 
-/// Build a JSON-RPC 2.0 error response
-/// id can be null (for parse errors where id couldn't be determined)
+/// Constructs a complete JSON-RPC 2.0 error response as an owned byte slice.
+///
+/// Called throughout main.zig's request loop for parse errors, validation
+/// failures, unknown methods, and tool execution errors. The id parameter
+/// may be null when the request could not be parsed far enough to extract
+/// an id (e.g., JSON parse errors).
 pub fn buildErrorResponse(allocator: std.mem.Allocator, id: ?std.json.Value, code: i32, message: []const u8) ![]u8 {
     var buffer = std.ArrayList(u8){};
     errdefer buffer.deinit(allocator);
@@ -109,8 +129,10 @@ pub fn writeJsonEscapedString(writer: anytype, str: []const u8) !void {
     }
 }
 
-/// Build a JSON-RPC 2.0 success response
-/// result_json should be a valid JSON string (already serialized)
+/// Wraps a pre-serialized JSON result string in a JSON-RPC 2.0 success envelope.
+///
+/// Called by main.handleInitialize, handlePing, handleToolsList, and
+/// handleToolsCall to produce the final response written to stdout.
 pub fn buildSuccessResponse(allocator: std.mem.Allocator, id: std.json.Value, result_json: []const u8) ![]u8 {
     var buffer = std.ArrayList(u8){};
     errdefer buffer.deinit(allocator);
@@ -126,28 +148,36 @@ pub fn buildSuccessResponse(allocator: std.mem.Allocator, id: std.json.Value, re
     return try buffer.toOwnedSlice(allocator);
 }
 
-/// Build a tool result content wrapper for MCP tools/call responses
-/// text_json should be a valid JSON string (already serialized, including quotes)
-/// If is_error is true, adds the isError:true flag per MCP spec
+/// Wraps tool output in the MCP content array format for tools/call responses.
+///
+/// Called by main.handleToolsCall after executeStump completes. The text_json
+/// is the serialized tree or error JSON. When is_error is true (e.g., token
+/// limit exceeded or large directory), the isError flag is added per the MCP
+/// specification so clients can distinguish tool errors from protocol errors.
 pub fn buildToolContent(allocator: std.mem.Allocator, text_json: []const u8, is_error: bool) ![]u8 {
     var buffer = std.ArrayList(u8){};
     errdefer buffer.deinit(allocator);
 
     const writer = buffer.writer(allocator);
 
-    try writer.writeAll("{\"content\":[{\"type\":\"text\",\"text\":");
-    try writer.writeAll(text_json);
+    try writer.writeAll("{\"content\":[{\"type\":\"text\",\"text\":\"");
+    try writeJsonEscapedString(writer, text_json);
+    try writer.writeAll("\"}]");
     if (is_error) {
         try writer.writeAll(",\"isError\":true");
     }
-    try writer.writeAll("}]}");
+    try writer.writeByte('}');
 
     return try buffer.toOwnedSlice(allocator);
 }
 
-/// Tracks cancelled request IDs for the notifications/cancelled feature
-/// Note: In a synchronous server, cancellation can only be checked at natural
-/// checkpoints (e.g., between directory entries during traversal).
+/// Tracks request IDs marked for cancellation via "notifications/cancelled".
+///
+/// Owned by main.zig's MCP request loop. When a cancelled notification arrives,
+/// the request ID is stored here. Before processing each incoming request,
+/// main checks isCancelled and skips the request if it was pre-emptively
+/// cancelled. Since the server is synchronous, cancellation only applies to
+/// requests that have not yet started processing.
 pub const CancellationTracker = struct {
     /// Set of cancelled request IDs (stored as integers for simplicity)
     cancelled_ids: std.AutoHashMap(i64, void),

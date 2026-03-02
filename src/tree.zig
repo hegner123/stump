@@ -1,3 +1,11 @@
+/// Recursive filesystem traversal engine that builds the directory tree.
+///
+/// Imported by main.zig (executeStump calls buildTree). This is the core
+/// algorithm: it walks the filesystem breadth-first from the configured root,
+/// applies filters, handles symlinks, enforces safeguards, tracks token limits,
+/// and accumulates results into a TraversalState. Delegates to filter.zig for
+/// inclusion decisions, symlink.zig for link handling, safeguards.zig for
+/// pre-traversal checks, and errors.zig for structured error creation.
 const std = @import("std");
 const types = @import("types.zig");
 const filter = @import("filter.zig");
@@ -5,8 +13,13 @@ const symlink = @import("symlink.zig");
 const safeguards = @import("safeguards.zig");
 const errors = @import("errors.zig");
 
-/// Build a directory tree by traversing the filesystem
-/// Returns the traversal state with all collected data
+/// Entry point for directory tree construction.
+///
+/// Called by main.executeStump after config parsing and performance tracker
+/// initialization. Runs the large-directory safeguard check, initializes
+/// TraversalState, creates a FilterContext from config, and kicks off recursive
+/// traversal from config.dir. Returns the populated state on success, or
+/// error.LargeDirectory / error.TokenLimitExceeded for handled failure cases.
 pub fn buildTree(allocator: std.mem.Allocator, config: *const types.Config) !types.TraversalState {
     var state = try types.TraversalState.init(allocator, config);
     errdefer state.deinit();
@@ -33,7 +46,11 @@ pub fn buildTree(allocator: std.mem.Allocator, config: *const types.Config) !typ
     return state;
 }
 
-/// Recursively traverse a directory
+/// Recursive core: opens a directory, adds it to the tree, and processes each child.
+///
+/// Respects the depth limit from Config. On directory-open failure (permissions,
+/// etc.), records a non-fatal error and returns without descending. Delegates
+/// individual entry processing to processEntry.
 fn traverseDirectory(
     state: *types.TraversalState,
     full_path: []const u8,
@@ -61,7 +78,7 @@ fn traverseDirectory(
 
     // Add directory entry if not root
     if (relative_path.len > 0) {
-        try addDirectoryEntry(state, relative_path);
+        try addDirectoryEntry(state, relative_path, full_path);
     }
 
     // Iterate over directory entries
@@ -79,7 +96,12 @@ fn traverseDirectory(
     }
 }
 
-/// Process a single directory entry
+/// Processes one filesystem entry: validates UTF-8, builds paths, handles symlinks,
+/// applies filters, and dispatches to addFileEntry/traverseDirectory by type.
+///
+/// This is the per-entry hot path. The order of operations matters: UTF-8
+/// validation runs first (to avoid constructing invalid paths), then symlink
+/// handling, then filtering, then type-based dispatch.
 fn processEntry(
     state: *types.TraversalState,
     parent_dir: std.fs.Dir,
@@ -97,11 +119,11 @@ fn processEntry(
 
     // Build full and relative paths
     var full_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const full_path = try std.fmt.bufPrint(&full_path_buf, "{s}/{s}", .{ parent_full_path, entry.name });
+    const full_path = try std.fmt.bufPrint(&full_path_buf, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{ parent_full_path, entry.name });
 
     var relative_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const relative_path = if (parent_relative_path.len > 0)
-        try std.fmt.bufPrint(&relative_path_buf, "{s}/{s}", .{ parent_relative_path, entry.name })
+        try std.fmt.bufPrint(&relative_path_buf, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{ parent_relative_path, entry.name })
     else
         try std.fmt.bufPrint(&relative_path_buf, "{s}", .{entry.name});
 
@@ -173,7 +195,12 @@ fn processEntry(
     }
 }
 
-/// Handle symlink detection and following
+/// Dispatches symlink handling based on the follow_symlinks config flag.
+///
+/// When not following: delegates to symlink.detectSymlink (record and skip).
+/// When following: delegates to symlink.handleSymlinkFollow (cycle check).
+/// Returns true if the entry should be skipped (symlink recorded or cycle
+/// detected with force mode), false to continue normal processing.
 fn handleSymlink(state: *types.TraversalState, full_path: []const u8, relative_path: []const u8) !bool {
     // If not following symlinks, detect and record
     if (!state.config.follow_symlinks) {
@@ -201,7 +228,7 @@ fn handleInvalidUtf8(state: *types.TraversalState, parent_path: []const u8, file
     // Build the relative path
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const relative_path = if (parent_path.len > 0)
-        try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ parent_path, filename })
+        try std.fmt.bufPrint(&path_buf, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{ parent_path, filename })
     else
         try std.fmt.bufPrint(&path_buf, "{s}", .{filename});
 
@@ -218,14 +245,23 @@ fn handleInvalidUtf8(state: *types.TraversalState, parent_path: []const u8, file
 }
 
 /// Add a directory entry to the tree
-fn addDirectoryEntry(state: *types.TraversalState, relative_path: []const u8) !void {
+fn addDirectoryEntry(state: *types.TraversalState, relative_path: []const u8, full_path: []const u8) !void {
     const path_copy = try state.allocator.dupe(u8, relative_path);
     errdefer state.allocator.free(path_copy);
+
+    const modified: ?i128 = if (state.config.show_modified) blk: {
+        const stat_info = std.fs.cwd().statFile(full_path) catch break :blk null;
+        if (state.config.performance) {
+            state.performance.stat_calls += 1;
+        }
+        break :blk stat_info.mtime;
+    } else null;
 
     const entry = types.TreeEntry{
         .path = path_copy,
         .type = .directory,
         .size = null,
+        .modified = modified,
     };
 
     try state.tree_entries.append(state.allocator, entry);
@@ -242,26 +278,33 @@ fn addFileEntry(state: *types.TraversalState, relative_path: []const u8, full_pa
     const path_copy = try state.allocator.dupe(u8, relative_path);
     errdefer state.allocator.free(path_copy);
 
-    // Get file size if requested
-    const size = if (state.config.show_size) blk: {
-        const stat_info = std.fs.cwd().statFile(full_path) catch |err| {
-            // If we can't stat the file, record error and skip
+    // Get file metadata if requested
+    const need_stat = state.config.show_size or state.config.show_modified;
+    const stat_info: ?std.fs.File.Stat = if (need_stat) blk: {
+        break :blk std.fs.cwd().statFile(full_path) catch |err| {
             state.allocator.free(path_copy);
             try handleStatError(state, relative_path, err);
             return;
         };
+    } else null;
 
-        if (state.config.performance) {
-            state.performance.stat_calls += 1;
-        }
+    if (need_stat and state.config.performance) {
+        state.performance.stat_calls += 1;
+    }
 
-        break :blk stat_info.size;
+    const size = if (state.config.show_size) blk: {
+        break :blk if (stat_info) |si| si.size else null;
+    } else null;
+
+    const modified = if (state.config.show_modified) blk: {
+        break :blk if (stat_info) |si| si.mtime else null;
     } else null;
 
     const entry = types.TreeEntry{
         .path = path_copy,
         .type = .file,
         .size = size,
+        .modified = modified,
     };
 
     try state.tree_entries.append(state.allocator, entry);
@@ -273,7 +316,12 @@ fn addFileEntry(state: *types.TraversalState, relative_path: []const u8, full_pa
     }
 }
 
-/// Check if token limit has been exceeded in stdout mode
+/// Estimates current output size and aborts traversal if the token limit is exceeded.
+///
+/// Called after every addDirectoryEntry and addFileEntry when output_file is
+/// null (stdout mode). Uses a rough heuristic of path bytes + 50 bytes JSON
+/// overhead per entry. Returns error.TokenLimitExceeded which propagates up
+/// to main.executeStump for error response generation.
 fn checkTokenLimit(state: *types.TraversalState) !void {
     // Estimate current byte count (rough approximation)
     // Each entry is approximately: path length + 50 bytes for JSON overhead

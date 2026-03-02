@@ -1,3 +1,10 @@
+/// Performance monitoring instrumentation for traversal, filtering, and serialization.
+///
+/// Imported by main.zig (creates and drives the PerformanceTracker) and
+/// output.zig (calls startSerialization/stopSerialization and recordOutputBytes).
+/// All tracking is gated behind the enabled flag -- when Config.performance is
+/// false, every method is a no-op. Also provides TrackingAllocator for optional
+/// per-allocation memory accounting.
 const std = @import("std");
 const types = @import("types.zig");
 
@@ -33,7 +40,13 @@ pub const Timer = struct {
     }
 };
 
-/// Performance tracker for monitoring resource usage throughout traversal
+/// Accumulates timing and counter data across traversal, filtering, and serialization.
+///
+/// Lifecycle: created in main.runCliMode or main.handleToolsCall, started with
+/// startTotal, then passed through executeStump where traversal and serialization
+/// timers are toggled. After execution, finalize computes derived metrics
+/// (items/sec, filter efficiency, etc.) and returns a PerformanceMetrics struct
+/// for inclusion in the output JSON.
 pub const PerformanceTracker = struct {
     allocator: std.mem.Allocator,
     enabled: bool,
@@ -221,8 +234,12 @@ pub const PerformanceTracker = struct {
     }
 };
 
-/// Custom allocator wrapper for tracking memory allocations
-/// This allows minimal-overhead memory tracking when performance monitoring is enabled
+/// Allocator wrapper that intercepts alloc/resize/free to track memory usage.
+///
+/// Wraps any std.mem.Allocator and forwards all operations while recording
+/// byte counts and peak usage in the associated PerformanceTracker. Created
+/// via createTrackingAllocator. Not currently wired into the main execution
+/// path -- available for future use when fine-grained memory reporting is needed.
 pub const TrackingAllocator = struct {
     parent_allocator: std.mem.Allocator,
     tracker: *PerformanceTracker,

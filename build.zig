@@ -1,3 +1,14 @@
+/// Build configuration for the stump executable, tests, and release variants.
+///
+/// Defines:
+/// - "stump" executable from src/main.zig
+/// - stump_lib_module from src/lib.zig (shared with tests as the "stump" import)
+/// - Unit tests from test/unit/all_tests.zig
+/// - Integration tests from test/integration/all_tests.zig
+/// - Release build steps for ReleaseSafe, ReleaseFast, and ReleaseSmall
+///
+/// Steps: "run" (build+execute), "test" (all), "test-unit", "test-integration",
+/// "release-safe", "release-fast", "release-small".
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
@@ -122,4 +133,19 @@ pub fn build(b: *std.Build) void {
 
     const release_small_step = b.step("release-small", "Build with ReleaseSmall optimization");
     release_small_step.dependOn(&install_small.step);
+
+    // Documentation generation from doc comments (/// and //!)
+    const docs = b.addLibrary(.{
+        .name = "stump",
+        .root_module = stump_lib_module,
+    });
+
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = docs.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+
+    const docs_step = b.step("docs", "Generate documentation from doc comments");
+    docs_step.dependOn(&install_docs.step);
 }

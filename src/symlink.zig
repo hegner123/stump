@@ -1,4 +1,14 @@
+/// Symlink detection, resolution, and cycle prevention during tree traversal.
+///
+/// Imported by tree.zig (handleSymlink dispatches to detectSymlink or
+/// handleSymlinkFollow depending on Config.follow_symlinks). Two modes:
+/// - follow_symlinks=false: records symlink path+target in TraversalState.symlinks
+///   and skips traversal into the target.
+/// - follow_symlinks=true: resolves the target, checks for cycles via device/inode
+///   tracking in TraversalState.visited_paths, and either continues traversal or
+///   records a cycle error.
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
 
@@ -24,11 +34,19 @@ pub fn resolveTarget(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 
 /// Get device and inode for a path (for cycle detection)
 pub fn getDeviceInode(path: []const u8) !types.VisitedPath {
-    const stat_info = try std.posix.fstatat(std.posix.AT.FDCWD, path, 0);
-    return types.VisitedPath{
-        .dev = @intCast(stat_info.dev),
-        .ino = @intCast(stat_info.ino),
-    };
+    if (comptime builtin.os.tag == .windows) {
+        const stat = try std.fs.cwd().statFile(path);
+        return types.VisitedPath{
+            .dev = 0,
+            .ino = @intCast(stat.inode),
+        };
+    } else {
+        const stat_info = try std.posix.fstatat(std.posix.AT.FDCWD, path, 0);
+        return types.VisitedPath{
+            .dev = @intCast(stat_info.dev),
+            .ino = @intCast(stat_info.ino),
+        };
+    }
 }
 
 /// Check if a path has been visited (cycle detection)
@@ -43,8 +61,12 @@ pub fn markVisited(visited_paths: *std.AutoHashMap(types.VisitedPath, void), pat
     try visited_paths.put(visited_path, {});
 }
 
-/// Handle symlink detection (when follow_symlinks: false)
-/// Records symlink info and returns true if symlink should be skipped
+/// Records a symlink in the output and signals tree.handleSymlink to skip it.
+///
+/// Called when follow_symlinks is false. Resolves the target path via readLink,
+/// appends a SymlinkInfo to TraversalState.symlinks, increments stats.symlinks,
+/// and returns true so the caller does not traverse into the target. Broken
+/// symlinks (unresolvable target) are recorded as invalid_symlink errors.
 pub fn detectSymlink(
     state: *types.TraversalState,
     path: []const u8,
@@ -88,9 +110,13 @@ pub fn detectSymlink(
     return false; // Continue to cycle detection
 }
 
-/// Handle symlink following with cycle detection (when follow_symlinks: true)
-/// Returns error if cycle detected and force: false
-/// Returns true if symlink should be skipped (cycle with force: true or broken link)
+/// Resolves a symlink target and checks for cycles before allowing traversal.
+///
+/// Called when follow_symlinks is true. Uses device/inode pairs (VisitedPath)
+/// stored in TraversalState.visited_paths to detect cycles. On cycle detection:
+/// force=false returns error.SymlinkCycle (fatal), force=true records a
+/// non-fatal symlink_cycle error and returns true (skip). Returns false when
+/// traversal should continue through the symlink.
 pub fn handleSymlinkFollow(
     state: *types.TraversalState,
     path: []const u8,
@@ -131,7 +157,7 @@ pub fn handleSymlinkFollow(
     } else blk: {
         // Relative symlink - resolve relative to parent directory of the link
         const parent_dir = std.fs.path.dirname(path) orelse ".";
-        const joined = try std.fmt.bufPrint(&target_path_buf, "{s}/{s}", .{ parent_dir, target });
+        const joined = try std.fmt.bufPrint(&target_path_buf, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{ parent_dir, target });
         break :blk joined;
     };
 

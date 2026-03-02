@@ -1,4 +1,10 @@
+/// Pre-traversal validation: large-directory detection and UTF-8 filename checks.
+///
+/// Imported by tree.zig (checkLargeDirectory at traversal start, isValidUtf8
+/// for each entry name). Delegates path classification to config.isLargeDirectory
+/// and provides the SafeguardResult tagged union for clean ok/fatal_error branching.
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
 const config = @import("config.zig");
@@ -7,7 +13,10 @@ const config = @import("config.zig");
 // (canonical definition is in config.zig)
 pub const LARGE_DIRECTORIES = config.LARGE_DIRECTORIES;
 
-/// Result type for safeguard checks
+/// Outcome of a pre-traversal safety check -- either ok or a fatal error.
+///
+/// Returned by checkLargeDirectory and validatePath. Callers in tree.buildTree
+/// inspect isOk() and propagate error.LargeDirectory if the check fails.
 pub const SafeguardResult = union(enum) {
     ok: void,
     fatal_error: types.FatalError,
@@ -20,7 +29,12 @@ pub const SafeguardResult = union(enum) {
     }
 };
 
-/// Check for large directory and return fatal error if detected and force is false
+/// Guards against traversing known-massive directories (/, /usr, /home/user, etc.).
+///
+/// Called as the first operation in tree.buildTree. When force is true, the
+/// check is bypassed and always returns ok. When the path matches a large
+/// directory and force is false, returns a FatalError that main.executeStump
+/// serializes as the tool error response.
 pub fn checkLargeDirectory(path: []const u8, force: bool, allocator: std.mem.Allocator) !SafeguardResult {
     const is_large = try config.isLargeDirectory(allocator, path);
 
@@ -40,8 +54,11 @@ pub fn checkLargeDirectory(path: []const u8, force: bool, allocator: std.mem.All
     return SafeguardResult{ .ok = {} };
 }
 
-/// Validate that a filename is valid UTF-8
-/// Returns true if valid, false if invalid
+/// Validates UTF-8 encoding of a filename byte slice.
+///
+/// Called by tree.processEntry for every directory entry before path
+/// construction. Invalid filenames are either fatal (force=false) or
+/// skipped with an error record (force=true).
 pub fn isValidUtf8(filename: []const u8) bool {
     return std.unicode.utf8ValidateSlice(filename);
 }
@@ -87,8 +104,12 @@ pub fn validateFilenameUtf8(
     return .{ .ok = {} };
 }
 
-/// Validate a directory path for traversal
-/// Checks both large directory and basic path validity
+/// Runs all pre-traversal validations (large directory + UTF-8 path encoding).
+///
+/// Composes checkLargeDirectory and validateFilenameUtf8 into a single call.
+/// Not currently used in the main code path -- tree.buildTree calls
+/// checkLargeDirectory directly. Available for callers that want both checks
+/// in one operation.
 pub fn validatePath(path: []const u8, force: bool, allocator: std.mem.Allocator) !SafeguardResult {
     // First check if it's a large directory
     const large_dir_result = try checkLargeDirectory(path, force, allocator);
@@ -139,26 +160,32 @@ test "isValidUtf8 - invalid strings" {
 }
 
 test "isLargeDirectory - system paths" {
+    if (comptime builtin.os.tag == .windows) {
+        return error.SkipZigTest;
+    }
     const allocator = std.testing.allocator;
 
-    // Test root directory
     const is_root_large = try config.isLargeDirectory(allocator, "/");
     try std.testing.expect(is_root_large);
 
-    // Test /usr
     const is_usr_large = try config.isLargeDirectory(allocator, "/usr");
     try std.testing.expect(is_usr_large);
 }
 
 test "isLargeDirectory - non-large paths" {
+    if (comptime builtin.os.tag == .windows) {
+        return error.SkipZigTest;
+    }
     const allocator = std.testing.allocator;
 
-    // Test a typical project directory (should not be large)
     const is_tmp_large = config.isLargeDirectory(allocator, "/tmp/test") catch false;
     try std.testing.expect(!is_tmp_large);
 }
 
 test "checkLargeDirectory - with force false" {
+    if (comptime builtin.os.tag == .windows) {
+        return error.SkipZigTest;
+    }
     const allocator = std.testing.allocator;
 
     var result = try checkLargeDirectory("/", false, allocator);
@@ -171,6 +198,9 @@ test "checkLargeDirectory - with force false" {
 }
 
 test "checkLargeDirectory - with force true" {
+    if (comptime builtin.os.tag == .windows) {
+        return error.SkipZigTest;
+    }
     const allocator = std.testing.allocator;
 
     const result = try checkLargeDirectory("/", true, allocator);

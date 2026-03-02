@@ -1,3 +1,10 @@
+/// Stump entrypoint: dual-mode CLI and MCP server for directory tree visualization.
+///
+/// Detects the execution mode at startup: if CLI arguments are present, runs as
+/// a one-shot CLI tool that prints the tree to stdout/file and exits. Otherwise,
+/// enters the MCP stdio protocol loop, reading JSON-RPC 2.0 requests from stdin
+/// and writing responses to stdout. Both modes share the same core pipeline:
+/// config parsing -> tree.buildTree -> output serialization.
 const std = @import("std");
 const builtin = @import("builtin");
 const types = @import("types.zig");
@@ -13,7 +20,10 @@ const buildErrorResponse = mcp.buildErrorResponse;
 const buildSuccessResponse = mcp.buildSuccessResponse;
 const buildToolContent = mcp.buildToolContent;
 
-/// CLI argument parsing result
+/// Parsed CLI arguments bundling a Config with the help-flag state.
+///
+/// Produced by parseCliArgs, consumed by runCliMode. Owns the Config
+/// and must be freed via deinit.
 const CliArgs = struct {
     config: types.Config,
     show_help: bool = false,
@@ -56,6 +66,8 @@ fn printHelp(file: std.fs.File) !void {
         \\  --no-hidden                  Hide hidden files
         \\  --size                       Show file sizes (default: true)
         \\  --no-size                    Hide file sizes
+        \\  --modified                   Show modification timestamps
+        \\  --no-modified                Hide modification timestamps (default)
         \\  --follow-symlinks            Follow symbolic links
         \\  --force                      Bypass large directory safeguards
         \\  --performance                Include performance metrics
@@ -121,6 +133,7 @@ fn parseCliArgs(allocator: std.mem.Allocator) CliError!CliArgs {
             .exclude_patterns = null,
             .show_hidden = true,
             .show_size = true,
+            .show_modified = false,
             .follow_symlinks = false,
             .force = false,
             .performance = false,
@@ -161,6 +174,10 @@ fn parseCliArgs(allocator: std.mem.Allocator) CliError!CliArgs {
             result.config.show_size = true;
         } else if (std.mem.eql(u8, arg, "--no-size")) {
             result.config.show_size = false;
+        } else if (std.mem.eql(u8, arg, "--modified")) {
+            result.config.show_modified = true;
+        } else if (std.mem.eql(u8, arg, "--no-modified")) {
+            result.config.show_modified = false;
         } else if (std.mem.eql(u8, arg, "--follow-symlinks")) {
             result.config.follow_symlinks = true;
         } else if (std.mem.eql(u8, arg, "--force")) {
@@ -193,10 +210,13 @@ fn parseCliArgs(allocator: std.mem.Allocator) CliError!CliArgs {
     return result;
 }
 
-/// Run in CLI mode - parse args, execute, print result
+/// CLI execution path: parses arguments, runs the tree pipeline, writes output.
+///
+/// Called from main when hasCliArgs returns true. Handles help display, error
+/// reporting to stderr, and exit code selection (0 success, 1 error).
 fn runCliMode(allocator: std.mem.Allocator) !u8 {
-    const stderr_file = std.fs.File{ .handle = std.posix.STDERR_FILENO };
-    const stdout_file = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    const stderr_file = std.fs.File.stderr();
+    const stdout_file = std.fs.File.stdout();
 
     var cli_args = parseCliArgs(allocator) catch |err| {
         const msg: []const u8 = switch (err) {
@@ -239,8 +259,7 @@ fn runCliMode(allocator: std.mem.Allocator) !u8 {
 
 /// Check if stdin is a terminal (interactive) or piped
 fn isStdinTerminal() bool {
-    const stdin_handle = std.posix.STDIN_FILENO;
-    return std.posix.isatty(stdin_handle);
+    return std.fs.File.stdin().isTty();
 }
 
 /// Check if any CLI arguments were passed
@@ -250,7 +269,11 @@ fn hasCliArgs() bool {
     return args.next() != null;
 }
 
-/// Result from executeStump including whether it's an error
+/// Pairing of serialized JSON output with an error flag, returned by executeStump.
+///
+/// When is_error is true, the json field contains a fatal error or token-limit
+/// error payload. In MCP mode, handleToolsCall uses is_error to set the MCP
+/// isError flag on the tool content wrapper.
 const StumpResult = struct {
     json: []u8,
     is_error: bool,
@@ -282,8 +305,8 @@ pub fn main() !u8 {
     }
 
     // MCP stdio protocol - read line by line
-    const stdin = std.fs.File{ .handle = std.posix.STDIN_FILENO };
-    const stdout = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+    const stdin = std.fs.File.stdin();
+    const stdout = std.fs.File.stdout();
 
     // Create buffered reader/writer for stdin/stdout
     var reader_buffer: [64 * 1024]u8 = undefined; // 64KB buffer
@@ -466,7 +489,11 @@ pub fn main() !u8 {
     return 0;
 }
 
-/// Read a line from the reader, allocating as needed for large lines
+/// Reads one newline-delimited line from the MCP stdin stream.
+///
+/// Handles lines that exceed the 64KB reader buffer by accumulating chunks
+/// via recursive calls (capped at 10MB to prevent OOM). Returns an owned
+/// slice. Called in the main MCP request loop for each JSON-RPC message.
 fn readLine(allocator: std.mem.Allocator, reader: *std.fs.File.Reader) ![]u8 {
     var line_buffer = std.ArrayList(u8){};
     errdefer line_buffer.deinit(allocator);
@@ -523,7 +550,11 @@ fn readLine(allocator: std.mem.Allocator, reader: *std.fs.File.Reader) ![]u8 {
     }
 }
 
-/// Process an MCP request and return JSON response
+/// Routes a parsed JSON-RPC request to the appropriate MCP method handler.
+///
+/// Dispatches to handleInitialize, handlePing, handleToolsList, or
+/// handleToolsCall based on the "method" field. Returns error.MethodNotFound
+/// for unrecognized methods, which the caller maps to JSON-RPC -32601.
 fn processRequest(allocator: std.mem.Allocator, request_value: std.json.Value) ![]u8 {
     // Extract method from request
     const method = if (request_value.object.get("method")) |m|
@@ -547,7 +578,11 @@ fn processRequest(allocator: std.mem.Allocator, request_value: std.json.Value) !
     }
 }
 
-/// Handle MCP initialize request
+/// Responds to the MCP "initialize" handshake with server capabilities.
+///
+/// Returns protocol version 2024-11-05, server name/version, and declares
+/// support for tools (list, call, listChanged). Transitions ProtocolState
+/// from uninitialized to initializing.
 fn handleInitialize(allocator: std.mem.Allocator, id: std.json.Value) ![]u8 {
     const result =
         \\{"protocolVersion":"2024-11-05","serverInfo":{"name":"stump","version":"1.0.0"},"capabilities":{"tools":{"list":true,"call":true,"listChanged":true}}}
@@ -561,15 +596,24 @@ fn handlePing(allocator: std.mem.Allocator, id: std.json.Value) ![]u8 {
     return buildSuccessResponse(allocator, id, "{}");
 }
 
-/// Handle MCP tools/list request
+/// Returns the tool catalog containing the single "stump" tool with its JSON Schema.
+///
+/// The schema declares "dir" as the only required parameter. All other
+/// parameters (depth, include_ext, exclude_ext, etc.) are optional with
+/// defaults matching Config field defaults in types.zig.
 fn handleToolsList(allocator: std.mem.Allocator, id: std.json.Value) ![]u8 {
     const result =
-        \\{"tools":[{"name":"stump","description":"Token-efficient directory tree visualization","inputSchema":{"type":"object","properties":{"dir":{"type":"string","description":"Root directory to scan"},"depth":{"type":"integer","description":"Max traversal depth (-1 for unlimited)"},"include_ext":{"type":"array","items":{"type":"string"}},"exclude_ext":{"type":"array","items":{"type":"string"}},"exclude_patterns":{"type":"array","items":{"type":"string"}},"show_hidden":{"type":"boolean"},"show_size":{"type":"boolean"},"follow_symlinks":{"type":"boolean"},"force":{"type":"boolean"},"performance":{"type":"boolean"},"output_file":{"type":"string"},"token_limit":{"type":"integer"}},"required":["dir"]}}]}
+        \\{"tools":[{"name":"stump","description":"Token-efficient directory tree visualization","inputSchema":{"type":"object","properties":{"dir":{"type":"string","description":"Root directory to scan"},"depth":{"type":"integer","description":"Max traversal depth (-1 for unlimited)"},"include_ext":{"type":"array","items":{"type":"string"}},"exclude_ext":{"type":"array","items":{"type":"string"}},"exclude_patterns":{"type":"array","items":{"type":"string"}},"show_hidden":{"type":"boolean"},"show_size":{"type":"boolean"},"show_modified":{"type":"boolean","description":"Include modification timestamps"},"follow_symlinks":{"type":"boolean"},"force":{"type":"boolean"},"performance":{"type":"boolean"},"output_file":{"type":"string"},"token_limit":{"type":"integer"}},"required":["dir"]}}]}
     ;
     return buildSuccessResponse(allocator, id, result);
 }
 
-/// Handle MCP tools/call request
+/// Executes the "stump" tool: parses arguments, runs the tree pipeline, wraps output.
+///
+/// Validates that the tool name is "stump", extracts arguments from the MCP
+/// params, builds a Config via parseConfig, runs executeStump, and wraps the
+/// result in an MCP content array via mcp.buildToolContent. Returns
+/// error.ToolNotFound for any tool name other than "stump".
 fn handleToolsCall(allocator: std.mem.Allocator, request_value: std.json.Value, id: std.json.Value) ![]u8 {
     // Extract params object
     const params = request_value.object.get("params") orelse return error.InvalidParams;
@@ -627,7 +671,11 @@ fn parseStringArray(allocator: std.mem.Allocator, array: std.json.Array) ![]cons
     return list;
 }
 
-/// Parse configuration from MCP arguments
+/// Transforms MCP JSON arguments into a Config struct for tree traversal.
+///
+/// Called by handleToolsCall. Extracts the required "dir" parameter and all
+/// optional parameters, applying the same defaults as CLI mode. Resolves the
+/// token limit via config_module.resolveTokenLimit (parameter > env > default).
 fn parseConfig(allocator: std.mem.Allocator, args: std.json.Value) !types.Config {
     // Extract required 'dir' parameter
     const dir_value = args.object.get("dir") orelse return error.MissingDirectory;
@@ -644,6 +692,7 @@ fn parseConfig(allocator: std.mem.Allocator, args: std.json.Value) !types.Config
         .exclude_patterns = null,
         .show_hidden = true,
         .show_size = true,
+        .show_modified = false,
         .follow_symlinks = false,
         .force = false,
         .performance = false,
@@ -679,6 +728,9 @@ fn parseConfig(allocator: std.mem.Allocator, args: std.json.Value) !types.Config
     if (args.object.get("show_size")) |v| {
         config.show_size = v.bool;
     }
+    if (args.object.get("show_modified")) |v| {
+        config.show_modified = v.bool;
+    }
     if (args.object.get("follow_symlinks")) |v| {
         config.follow_symlinks = v.bool;
     }
@@ -707,7 +759,14 @@ fn parseConfig(allocator: std.mem.Allocator, args: std.json.Value) !types.Config
     return config;
 }
 
-/// Main algorithm execution following PLAN.md steps 1-11
+/// Core execution pipeline shared by CLI and MCP modes.
+///
+/// Orchestrates the full sequence: tree.buildTree (traversal with filtering
+/// and safeguards), buildOutputData (assembly from TraversalState), and
+/// output serialization (to file or stdout with token limit enforcement).
+/// Returns a StumpResult containing the serialized JSON and an error flag
+/// indicating whether the output represents a tool error (large directory,
+/// token limit exceeded) vs. successful tree data.
 fn executeStump(
     allocator: std.mem.Allocator,
     config: *types.Config,
@@ -820,7 +879,12 @@ fn executeStump(
     }
 }
 
-/// Build OutputData from traversal state
+/// Assembles the final OutputData struct from traversal results.
+///
+/// Borrows slice references from TraversalState (tree_entries, symlinks, errors)
+/// rather than copying them. Only the root path string and the optional _note
+/// are independently allocated. Called by executeStump after tree.buildTree
+/// completes successfully.
 fn buildOutputData(
     allocator: std.mem.Allocator,
     config: *const types.Config,
@@ -864,7 +928,11 @@ fn buildOutputData(
     return output_data;
 }
 
-/// Serialize FileOutputSuccess to JSON
+/// Serializes the file-output success message (filename, stats) to JSON.
+///
+/// Called by executeStump when output_file is set and the tree was successfully
+/// written to disk. The resulting JSON is either printed to stdout (CLI mode)
+/// or wrapped in an MCP tool content response (MCP mode).
 fn serializeFileSuccess(allocator: std.mem.Allocator, success: *const types.FileOutputSuccess) ![]u8 {
     var buffer = std.ArrayList(u8){};
     errdefer buffer.deinit(allocator);

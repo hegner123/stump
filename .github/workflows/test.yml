@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     runs-on: ${{ matrix.os }}
 
@@ -47,5 +47,10 @@ jobs:
       - name: Build ReleaseFast
         run: zig build release-fast
 
-      - name: Verify binary
+      - name: Verify binary (Unix)
+        if: runner.os != 'Windows'
         run: ./zig-out/bin/stump --help
+
+      - name: Verify binary (Windows)
+        if: runner.os == 'Windows'
+        run: .\zig-out\bin\stump.exe --help

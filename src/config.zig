@@ -1,4 +1,11 @@
+/// Token limit resolution, large-directory detection, and global constants.
+///
+/// Imported by main.zig (to resolve token limits during config parsing),
+/// safeguards.zig (to check paths against LARGE_DIRECTORIES), and lib.zig
+/// (re-exported for tests). Contains no mutable state -- all functions are
+/// pure or read from the environment/filesystem.
 const std = @import("std");
+const builtin = @import("builtin");
 
 /// Token limit constants
 pub const MIN_TOKEN_LIMIT: u32 = 1000;
@@ -8,9 +15,19 @@ pub const DEFAULT_TOKEN_LIMIT: u32 = 10000;
 /// Environment variable name for token limit
 pub const TOKEN_LIMIT_ENV_VAR = "STUMP_TOKEN_LIMIT";
 
-/// Large directory paths that should trigger warnings
-/// These directories typically contain thousands or millions of files
-pub const LARGE_DIRECTORIES = [_][]const u8{
+/// Paths that trigger the large-directory safeguard in safeguards.checkLargeDirectory.
+///
+/// When a user requests traversal of one of these roots without force mode,
+/// execution halts with a fatal error. Also re-exported by safeguards.zig.
+pub const LARGE_DIRECTORIES = if (builtin.os.tag == .windows) [_][]const u8{
+    "C:\\",
+    "C:\\Windows",
+    "C:\\Windows\\System32",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+    "C:\\Users",
+    "C:\\ProgramData",
+} else [_][]const u8{
     // Root and system directories
     "/",
     "/usr",
@@ -38,11 +55,15 @@ pub const LARGE_DIRECTORIES = [_][]const u8{
     "/cores",
 };
 
-/// Resolves the token limit from multiple sources with priority:
-/// 1. Explicit parameter (highest priority)
-/// 2. Environment variable (STUMP_TOKEN_LIMIT)
-/// 3. Default value (10,000 tokens)
-/// Returns clamped value within valid range [1k-100k]
+/// Resolves the effective token limit using a three-tier priority chain:
+/// 1. Explicit parameter from CLI --token-limit or MCP token_limit argument
+/// 2. STUMP_TOKEN_LIMIT environment variable
+/// 3. DEFAULT_TOKEN_LIMIT (10,000)
+///
+/// Called by main.parseCliArgs and main.parseConfig after gathering user input.
+/// The result is stored in Config.resolved_token_limit and converted to a byte
+/// limit via tokenLimitToBytes for comparison during traversal and serialization.
+/// Always returns a value clamped to [MIN_TOKEN_LIMIT, MAX_TOKEN_LIMIT].
 pub fn resolveTokenLimit(param_limit: ?u32) u32 {
     // Priority 1: Explicit parameter
     if (param_limit) |limit| {
@@ -80,9 +101,12 @@ pub fn clampTokenLimit(limit: u32) u32 {
     return limit;
 }
 
-/// Checks if a given path matches a known large directory
-/// Performs canonical path comparison to handle symlinks and relative paths
-/// Returns true if path is a large directory that should trigger warnings
+/// Checks whether a path resolves to a known large directory or user home root.
+///
+/// Called by safeguards.checkLargeDirectory before traversal begins. Resolves
+/// the path to its canonical form via realpath to handle symlinks and relative
+/// paths, then compares against LARGE_DIRECTORIES and checks for home directory
+/// patterns (/home/user, /Users/user, /root).
 pub fn isLargeDirectory(allocator: std.mem.Allocator, path: []const u8) !bool {
     // Resolve to canonical absolute path
     const canonical_path = try std.fs.realpathAlloc(allocator, path);
@@ -107,27 +131,33 @@ pub fn isLargeDirectory(allocator: std.mem.Allocator, path: []const u8) !bool {
 /// Checks if path appears to be a user home directory root
 /// Examples: /home/user, /Users/user, /root
 fn isUserHomeDirectory(path: []const u8) bool {
-    // Check for /home/* pattern (Linux)
-    if (std.mem.startsWith(u8, path, "/home/")) {
-        const after_home = path[6..];
-        // If there's a username but no further path, it's a home root
-        const slash_pos = std.mem.indexOf(u8, after_home, "/");
-        return slash_pos == null and after_home.len > 0;
-    }
+    if (comptime builtin.os.tag == .windows) {
+        const prefix = "C:\\Users\\";
+        if (std.mem.startsWith(u8, path, prefix)) {
+            const after_users = path[prefix.len..];
+            const sep_pos = std.mem.indexOf(u8, after_users, "\\");
+            return sep_pos == null and after_users.len > 0;
+        }
+        return false;
+    } else {
+        if (std.mem.startsWith(u8, path, "/home/")) {
+            const after_home = path[6..];
+            const slash_pos = std.mem.indexOf(u8, after_home, "/");
+            return slash_pos == null and after_home.len > 0;
+        }
 
-    // Check for /Users/* pattern (macOS)
-    if (std.mem.startsWith(u8, path, "/Users/")) {
-        const after_users = path[7..];
-        const slash_pos = std.mem.indexOf(u8, after_users, "/");
-        return slash_pos == null and after_users.len > 0;
-    }
+        if (std.mem.startsWith(u8, path, "/Users/")) {
+            const after_users = path[7..];
+            const slash_pos = std.mem.indexOf(u8, after_users, "/");
+            return slash_pos == null and after_users.len > 0;
+        }
 
-    // Check for /root (Linux root user home)
-    if (std.mem.eql(u8, path, "/root")) {
-        return true;
-    }
+        if (std.mem.eql(u8, path, "/root")) {
+            return true;
+        }
 
-    return false;
+        return false;
+    }
 }
 
 /// Converts token limit to byte limit using 4 chars/token approximation
@@ -173,13 +203,22 @@ test "tokenLimitToBytes" {
 }
 
 test "isUserHomeDirectory" {
-    try std.testing.expect(isUserHomeDirectory("/home/alice"));
-    try std.testing.expect(isUserHomeDirectory("/Users/bob"));
-    try std.testing.expect(isUserHomeDirectory("/root"));
+    if (comptime builtin.os.tag == .windows) {
+        try std.testing.expect(isUserHomeDirectory("C:\\Users\\alice"));
+        try std.testing.expect(isUserHomeDirectory("C:\\Users\\bob"));
 
-    try std.testing.expect(!isUserHomeDirectory("/home/alice/Documents"));
-    try std.testing.expect(!isUserHomeDirectory("/Users/bob/projects"));
-    try std.testing.expect(!isUserHomeDirectory("/home"));
-    try std.testing.expect(!isUserHomeDirectory("/Users"));
-    try std.testing.expect(!isUserHomeDirectory("/"));
+        try std.testing.expect(!isUserHomeDirectory("C:\\Users\\alice\\Documents"));
+        try std.testing.expect(!isUserHomeDirectory("C:\\Users"));
+        try std.testing.expect(!isUserHomeDirectory("C:\\"));
+    } else {
+        try std.testing.expect(isUserHomeDirectory("/home/alice"));
+        try std.testing.expect(isUserHomeDirectory("/Users/bob"));
+        try std.testing.expect(isUserHomeDirectory("/root"));
+
+        try std.testing.expect(!isUserHomeDirectory("/home/alice/Documents"));
+        try std.testing.expect(!isUserHomeDirectory("/Users/bob/projects"));
+        try std.testing.expect(!isUserHomeDirectory("/home"));
+        try std.testing.expect(!isUserHomeDirectory("/Users"));
+        try std.testing.expect(!isUserHomeDirectory("/"));
+    }
 }

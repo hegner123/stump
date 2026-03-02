@@ -305,10 +305,12 @@ test "ProtocolState.initializing allows initialized notification" {
     try testing.expect(state.isMethodAllowed("initialized"));
     try testing.expect(state.isMethodAllowed("notifications/cancelled"));
 
-    // Other methods should be rejected
+    // initialize should be rejected (already called)
     try testing.expect(!state.isMethodAllowed("initialize"));
-    try testing.expect(!state.isMethodAllowed("tools/list"));
-    try testing.expect(!state.isMethodAllowed("tools/call"));
+
+    // Other methods are allowed (some clients skip initialized step)
+    try testing.expect(state.isMethodAllowed("tools/list"));
+    try testing.expect(state.isMethodAllowed("tools/call"));
 }
 
 test "ProtocolState.ready allows most methods except initialize" {
@@ -344,10 +346,10 @@ test "ProtocolState.nextState ignores irrelevant methods" {
     state = state.nextState("tools/list");
     try testing.expectEqual(mcp.ProtocolState.uninitialized, state);
 
-    // initializing stays initializing for non-initialized methods
+    // initializing transitions to ready on any method (clients may skip initialized)
     state = mcp.ProtocolState.initializing;
     state = state.nextState("tools/list");
-    try testing.expectEqual(mcp.ProtocolState.initializing, state);
+    try testing.expectEqual(mcp.ProtocolState.ready, state);
 }
 
 test "isNotification identifies notifications correctly" {
@@ -382,10 +384,11 @@ test "buildToolContent without isError flag" {
 
     const item = content_array.items[0].object;
     try testing.expectEqualStrings("text", item.get("type").?.string);
-    try testing.expectEqualStrings("hello world", item.get("text").?.string);
+    // text field is a string containing the stringified JSON
+    try testing.expectEqualStrings("\"hello world\"", item.get("text").?.string);
 
-    // isError should not be present
-    try testing.expect(item.get("isError") == null);
+    // isError should not be present at result level
+    try testing.expect(obj.get("isError") == null);
 }
 
 test "buildToolContent with isError flag" {
@@ -405,20 +408,22 @@ test "buildToolContent with isError flag" {
 
     const item = content_array.items[0].object;
     try testing.expectEqualStrings("text", item.get("type").?.string);
-    try testing.expectEqualStrings("Error: something went wrong", item.get("text").?.string);
+    // text field is a string containing the stringified JSON
+    try testing.expectEqualStrings("\"Error: something went wrong\"", item.get("text").?.string);
 
-    // isError should be true
-    try testing.expect(item.get("isError").?.bool == true);
+    // isError should be true at result level (not inside content item)
+    try testing.expect(obj.get("isError").?.bool == true);
+    try testing.expect(item.get("isError") == null);
 }
 
 test "buildToolContent with complex JSON as text" {
     const allocator = testing.allocator;
 
-    // The text_json parameter should be a valid JSON value (including quotes for strings)
-    // For a JSON object as the text, it would be an object literal
+    // text_json is a serialized JSON object - it gets string-escaped into the text field
+    const json_input = "{\"error\":\"Token limit exceeded\",\"stats\":{\"dirs\":10}}";
     const content = try mcp.buildToolContent(
         allocator,
-        "{\"error\":\"Token limit exceeded\",\"stats\":{\"dirs\":10}}",
+        json_input,
         true,
     );
     defer allocator.free(content);
@@ -431,12 +436,13 @@ test "buildToolContent with complex JSON as text" {
     const content_array = obj.get("content").?.array;
     const item = content_array.items[0].object;
 
-    // text should be the parsed JSON object
-    const text_obj = item.get("text").?.object;
-    try testing.expectEqualStrings("Token limit exceeded", text_obj.get("error").?.string);
+    // text should be a string containing the JSON (not a nested object)
+    const text_str = item.get("text").?.string;
+    try testing.expectEqualStrings(json_input, text_str);
 
-    // isError should be true
-    try testing.expect(item.get("isError").?.bool == true);
+    // isError should be true at result level
+    try testing.expect(obj.get("isError").?.bool == true);
+    try testing.expect(item.get("isError") == null);
 }
 
 // Ping Method Tests
@@ -472,8 +478,9 @@ test "ping is not allowed before initialization" {
     const uninitialized = mcp.ProtocolState.uninitialized;
     try testing.expect(!uninitialized.isMethodAllowed("ping"));
 
+    // ping IS allowed in initializing state (clients may skip initialized step)
     const initializing = mcp.ProtocolState.initializing;
-    try testing.expect(!initializing.isMethodAllowed("ping"));
+    try testing.expect(initializing.isMethodAllowed("ping"));
 }
 
 // Cancellation Tracker Tests

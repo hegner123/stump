@@ -1,3 +1,10 @@
+/// Factory functions for creating typed error entries and fatal error objects.
+///
+/// Imported by tree.zig (handleDirectoryOpenError, handleStatError) and
+/// symlink.zig (createInvalidSymlinkError) to produce structured error records
+/// during traversal. Also imported by main.zig to build fatal error responses
+/// for large directories. Error messages are static strings where possible to
+/// avoid unnecessary allocations.
 const std = @import("std");
 const types = @import("types.zig");
 
@@ -5,7 +12,12 @@ const types = @import("types.zig");
 pub const ErrorType = types.ErrorType;
 pub const ErrorEntry = types.ErrorEntry;
 
-/// Build fatal error message for large directory
+/// Creates a FatalError for paths matching config.LARGE_DIRECTORIES.
+///
+/// Called by main.executeStump when tree.buildTree returns error.LargeDirectory.
+/// The returned FatalError is serialized by output.serializeFatalError and
+/// sent as the tool error response. Includes user-facing recommendations
+/// for depth limits, filters, file output, or force mode.
 pub fn buildLargeDirectoryError(allocator: std.mem.Allocator, path: []const u8) !types.FatalError {
     const message = try std.fmt.allocPrint(
         allocator,
@@ -41,7 +53,11 @@ pub fn buildSymlinkCycleError(allocator: std.mem.Allocator, path: []const u8) !t
     return try types.FatalError.init(allocator, .symlink_cycle, path, message);
 }
 
-/// Build token limit exceeded error
+/// Builds a token-limit-exceeded error as a std.json.Value object.
+///
+/// Appears to be unused in the current codebase -- main.executeStump calls
+/// output.serializeTokenLimitError directly instead. @todo verify whether
+/// this function has any remaining callers or is dead code.
 pub fn buildTokenLimitError(allocator: std.mem.Allocator, dirs: usize, files: usize, aborted_at: usize, token_limit: usize) !std.json.Value {
     const message = try std.fmt.allocPrint(
         allocator,
@@ -99,13 +115,20 @@ pub fn isValidUtf8(bytes: []const u8) bool {
     return std.unicode.utf8ValidateSlice(bytes);
 }
 
-/// Create a non-fatal error entry for permission denied
+/// Creates a non-fatal error entry for AccessDenied during directory or file stat.
+///
+/// Called by tree.handleDirectoryOpenError and tree.handleStatError. The path
+/// is already allocated by the caller; this function takes ownership of it.
 pub fn createPermissionDeniedError(allocator: std.mem.Allocator, path: []const u8) !types.ErrorEntry {
     const msg = try permissionDeniedMessage(allocator, path);
     return types.ErrorEntry.init(.permission_denied, path, msg);
 }
 
-/// Create a non-fatal error entry for invalid symlink
+/// Creates a non-fatal error entry for broken or unresolvable symlinks.
+///
+/// Called by symlink.detectSymlink and symlink.handleSymlinkFollow when
+/// resolveTarget fails. The path and target are already allocated by the
+/// caller; this function takes ownership of them.
 pub fn createInvalidSymlinkError(allocator: std.mem.Allocator, path: []const u8, target: []const u8) !types.ErrorEntry {
     const msg = try invalidSymlinkMessage(allocator, target);
     return types.ErrorEntry.initWithTarget(.invalid_symlink, path, target, msg);
