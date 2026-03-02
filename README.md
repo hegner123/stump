@@ -54,7 +54,29 @@ stump ~/projects -d 3             # Max depth 3
 stump src --exclude-ext log,tmp   # Filter extensions
 stump . --no-hidden               # Hide hidden files
 stump . -o tree.json              # Output to file
+stump . --modified                # Include modification timestamps
+stump . --follow-symlinks         # Follow symlinks with cycle detection
+stump . --performance             # Include performance metrics
+stump . --token-limit 50000       # Custom token limit
 ```
+
+#### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `-h`, `--help` | Show help message |
+| `-d`, `--depth <N>` | Max traversal depth (-1 for unlimited, default: -1) |
+| `-o`, `--output <file>` | Output to file instead of stdout |
+| `--include-ext <ext,...>` | Only include files with these extensions |
+| `--exclude-ext <ext,...>` | Exclude files with these extensions |
+| `--exclude <pattern,...>` | Exclude paths matching glob patterns |
+| `--hidden` / `--no-hidden` | Show/hide hidden files (default: show) |
+| `--size` / `--no-size` | Show/hide file sizes (default: show) |
+| `--modified` / `--no-modified` | Show/hide modification timestamps (default: hide) |
+| `--follow-symlinks` | Follow symbolic links (with cycle detection) |
+| `--force` | Bypass large directory safeguards |
+| `--performance` | Include performance metrics in output |
+| `--token-limit <N>` | Token limit for stdout mode (1000-100000, default: 10000) |
 
 Run `stump --help` for all options.
 
@@ -191,6 +213,7 @@ zig build test-integration
 | `exclude_patterns` | array | [] | Glob patterns to exclude |
 | `show_hidden` | boolean | true | Show hidden files (starting with .) |
 | `show_size` | boolean | true | Include file sizes in output |
+| `show_modified` | boolean | false | Include modification timestamps |
 | `follow_symlinks` | boolean | false | Follow symbolic links (with cycle detection) |
 | `force` | boolean | false | Bypass safety warnings and continue on non-fatal errors |
 | `performance` | boolean | false | Include performance metrics in output |
