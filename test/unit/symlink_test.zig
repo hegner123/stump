@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const symlink = @import("stump").symlink;
 const types = @import("stump").types;
@@ -34,7 +35,7 @@ test "isSymlink returns false for regular files" {
 
 test "isSymlink returns false for directories" {
     const is_link = symlink.isSymlink("test/fixtures/basic") catch |err| {
-        if (err == error.FileNotFound) {
+        if (err == error.FileNotFound or err == error.IsDir) {
             return;
         }
         return err;

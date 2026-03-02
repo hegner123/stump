@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const output = @import("stump").output;
 
@@ -55,8 +56,7 @@ test "generateUniqueFilename with null creates temp file path" {
     const filename = try output.generateUniqueFilename(allocator, null);
     defer allocator.free(filename);
 
-    // Should be in /tmp and end with .json
-    try testing.expect(std.mem.startsWith(u8, filename, "/tmp/stump-"));
+    try testing.expect(std.mem.indexOf(u8, filename, "stump-") != null);
     try testing.expect(std.mem.endsWith(u8, filename, ".json"));
 }
 

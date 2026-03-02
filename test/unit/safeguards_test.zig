@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const safeguards = @import("stump").safeguards;
 const types = @import("stump").types;
@@ -39,6 +40,7 @@ test "SafeguardResult.isOk returns false for fatal_error variant" {
 }
 
 test "checkLargeDirectory allows traversal with force=true" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = testing.allocator;
 
     // Even root directory should be allowed with force=true
@@ -47,6 +49,7 @@ test "checkLargeDirectory allows traversal with force=true" {
 }
 
 test "checkLargeDirectory blocks large directories with force=false" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = testing.allocator;
 
     // Root directory should be blocked without force

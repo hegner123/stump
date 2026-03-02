@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const config = @import("stump").config;
 
@@ -45,6 +46,7 @@ test "resolveTokenLimit returns value in valid range when no parameter" {
 }
 
 test "isLargeDirectory detects root directory" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = testing.allocator;
 
     const is_large = try config.isLargeDirectory(allocator, "/");
@@ -52,6 +54,7 @@ test "isLargeDirectory detects root directory" {
 }
 
 test "isLargeDirectory detects system directories" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = testing.allocator;
 
     // Test /usr which should exist on most Unix systems
@@ -98,6 +101,22 @@ test "Constants have expected values" {
 }
 
 test "LARGE_DIRECTORIES contains expected paths" {
+    if (comptime builtin.os.tag == .windows) {
+        const win_expected = [_][]const u8{
+            "C:\\", "C:\\Windows", "C:\\Users", "C:\\Program Files",
+        };
+        for (win_expected) |expected_dir| {
+            var found = false;
+            for (config.LARGE_DIRECTORIES) |dir| {
+                if (std.mem.eql(u8, dir, expected_dir)) {
+                    found = true;
+                    break;
+                }
+            }
+            try testing.expect(found);
+        }
+        return;
+    }
     const expected = [_][]const u8{
         "/", "/usr", "/var", "/home", "/System",
         "/Library", "/Applications", "/etc", "/opt",
