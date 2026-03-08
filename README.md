@@ -6,9 +6,19 @@
 
 A high-performance MCP server tool that provides compact, token-efficient directory tree visualization optimized for LLM consumption.
 
+## Architecture
+
+Stump uses a two-binary architecture for concurrent MCP request handling:
+
+- **`stump`** (Go) — MCP server that handles JSON-RPC 2.0 stdio protocol. Each `tools/call` request spawns a goroutine that execs `stump-core` as a subprocess. Multiple requests run concurrently without blocking each other.
+- **`stump-core`** (Zig) — CLI tool that performs the actual directory traversal and outputs JSON. Runs as a one-shot process per request.
+
+This design solves the problem of concurrent MCP clients (e.g., parent and sub-agents) sharing a single MCP server process. The Go wrapper handles concurrency via goroutines while the Zig core focuses on fast filesystem traversal.
+
 ## Features
 
 - **Token-Efficient Output**: 50%+ reduction vs standard tree tools through compact JSON format
+- **Concurrent Request Handling**: Multiple agents can call stump simultaneously without blocking
 - **Configurable Depth**: Control traversal depth to limit output size
 - **Smart Filtering**: Include/exclude by extension, pattern, or hidden files
 - **Symlink Handling**: Detect symlinks by default, optionally follow with cycle detection
@@ -25,39 +35,48 @@ A high-performance MCP server tool that provides compact, token-efficient direct
 ### Prerequisites
 
 - Zig 0.15.2 or later
+- Go 1.23 or later
 
 ### Build
 
 ```bash
-# Development build
-zig build
+# Development build (both binaries)
+just build
 
-# Optimized release build (recommended for production)
-zig build -Doptimize=ReleaseFast
+# Optimized release build
+just release
 
-# Alternative release modes
-zig build release-safe   # Safety checks enabled
-zig build release-fast   # Maximum performance
-zig build release-small  # Minimal binary size
+# Build and install to /usr/local/bin
+just install
 ```
 
-The compiled binary will be in `zig-out/bin/stump` (Unix) or `zig-out\bin\stump.exe` (Windows).
+Or manually:
+
+```bash
+# Zig core
+zig build release-fast
+
+# Go MCP wrapper
+go build -o stump-mcp
+```
+
+The Zig binary will be in `zig-out/bin/stump-core`. The Go binary will be `stump-mcp`.
 
 ### CLI Usage
 
-Stump can be used directly from the command line:
+The `stump-core` binary can be used directly from the command line:
 
 ```bash
 # Basic usage
-stump .                           # Current directory
-stump ~/projects -d 3             # Max depth 3
-stump src --exclude-ext log,tmp   # Filter extensions
-stump . --no-hidden               # Hide hidden files
-stump . -o tree.json              # Output to file
-stump . --modified                # Include modification timestamps
-stump . --follow-symlinks         # Follow symlinks with cycle detection
-stump . --performance             # Include performance metrics
-stump . --token-limit 50000       # Custom token limit
+stump-core .                           # Current directory
+stump-core ~/projects -d 3             # Max depth 3
+stump-core src --exclude-ext log,tmp   # Filter extensions
+stump-core . --no-hidden               # Hide hidden files
+stump-core . -o tree.json              # Output to file
+stump-core . --modified                # Include modification timestamps
+stump-core . --follow-symlinks         # Follow symlinks with cycle detection
+stump-core . --performance             # Include performance metrics
+stump-core . --token-limit 50000       # Custom token limit
 ```
 
 #### CLI Flags
@@ -78,30 +97,31 @@ stump . --token-limit 50000       # Custom token limit
 | `--performance` | Include performance metrics in output |
 | `--token-limit <N>` | Token limit for stdout mode (1000-100000, default: 10000) |
 
-Run `stump --help` for all options.
+Run `stump-core --help` for all options.
 
 ### Installation as MCP Server
 
-Add to your MCP client configuration:
+```bash
+# Install both binaries
+just install
+```
+
+Then add to your MCP client configuration:
 
 ```bash
-# Basic installation (default 10k token limit)
-claude mcp add --transport stdio stump -- /path/to/zig-out/bin/stump
-
-# With custom token limit via environment variable
-claude mcp add --transport stdio stump -- env STUMP_TOKEN_LIMIT=20000 /path/to/zig-out/bin/stump
+# Register the Go MCP wrapper (which execs stump-core internally)
+claude mcp add --transport stdio stump -- /usr/local/bin/stump
 ```
 
 ### Testing
 
 ```bash
-# Run all tests
+# Run all tests (Zig + Go)
+just test
+
+# Zig tests only
 zig build test
-
-# Run only unit tests
 zig build test-unit
-
-# Run only integration tests
 zig build test-integration
 ```
 
@@ -370,9 +390,11 @@ Compared to standard `tree` command output:
 
 ```
 stump/
-├── src/
-│   ├── main.zig          # Entry point, CLI and MCP stdio handler
-│   ├── mcp.zig           # MCP protocol handling
+├── main.go               # Go MCP wrapper (JSON-RPC, goroutines)
+├── go.mod                # Go module
+├── src/                  # Zig core (stump-core)
+│   ├── main.zig          # CLI entry point
+│   ├── mcp.zig           # MCP protocol types (used by Zig MCP, retained for tests)
 │   ├── lib.zig           # Library exports for testing
 │   ├── config.zig        # Config resolution (token limits, env vars)
 │   ├── types.zig         # All data structures
@@ -386,13 +408,9 @@ stump/
 ├── test/
 │   ├── unit/             # Unit tests for each module
 │   ├── integration/      # End-to-end integration tests
-│   └── fixtures/         # Test directories (basic, deep, wide, symlinks, utf8)
-├── .github/workflows/    # CI/CD workflows
-│   ├── test.yml          # Test on push/PR (Linux, macOS, Windows)
-│   └── release.yml       # Build binaries on release
+│   └── fixtures/         # Test directories
 ├── build.zig             # Zig build configuration
-├── AGENTS.md             # AI agent development guide
-├── README.md             # This file
+├── justfile              # Build, install, test commands
 └── LICENSE               # MIT license
 ```
 
@@ -419,3 +437,4 @@ Built with AI-augmented concurrent development:
 - **2nd Round Bug Fixes**: Claude Opus 4.5 with documentation by [@hegner123](https://github.com/hegner123)
 - **Final Bug Fixes & Tests**: Claude Opus 4.5
 - **Windows Compatibility**: Claude Opus 4.6
+- **Go MCP Wrapper (Concurrent Requests)**: Claude Opus 4.6

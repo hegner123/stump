@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "stump",
+        .name = "stump-core",
         .root_module = main_module,
     });
 
@@ -94,7 +94,7 @@ pub fn build(b: *std.Build) void {
 
     // Release builds with specific optimization levels
     const release_safe_exe = b.addExecutable(.{
-        .name = "stump",
+        .name = "stump-core",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
@@ -103,7 +103,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const release_fast_exe = b.addExecutable(.{
-        .name = "stump",
+        .name = "stump-core",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
@@ -112,7 +112,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const release_small_exe = b.addExecutable(.{
-        .name = "stump",
+        .name = "stump-core",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
