@@ -15,19 +15,34 @@ jobs:
         include:
           - target: x86_64-linux
             os: ubuntu-latest
-            artifact: stump-linux-x86_64
+            zig_artifact: stump-core-linux-x86_64
+            go_artifact: stump-mcp-linux-x86_64
+            goos: linux
+            goarch: amd64
           - target: aarch64-linux
             os: ubuntu-latest
-            artifact: stump-linux-aarch64
+            zig_artifact: stump-core-linux-aarch64
+            go_artifact: stump-mcp-linux-aarch64
+            goos: linux
+            goarch: arm64
           - target: x86_64-macos
             os: macos-latest
-            artifact: stump-macos-x86_64
+            zig_artifact: stump-core-macos-x86_64
+            go_artifact: stump-mcp-macos-x86_64
+            goos: darwin
+            goarch: amd64
           - target: aarch64-macos
             os: macos-latest
-            artifact: stump-macos-aarch64
+            zig_artifact: stump-core-macos-aarch64
+            go_artifact: stump-mcp-macos-aarch64
+            goos: darwin
+            goarch: arm64
           - target: x86_64-windows
             os: windows-latest
-            artifact: stump-windows-x86_64.exe
+            zig_artifact: stump-core-windows-x86_64.exe
+            go_artifact: stump-mcp-windows-x86_64.exe
+            goos: windows
+            goarch: amd64
 
     runs-on: ${{ matrix.os }}
 
@@ -39,18 +54,32 @@ jobs:
         with:
           version: 0.15.2
 
-      - name: Build release binary
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build Zig release binary
         run: zig build release-fast -Dtarget=${{ matrix.target }}
 
-      - name: Rename binary (Unix)
-        if: runner.os != 'Windows'
-        run: mv zig-out/bin/stump ${{ matrix.artifact }}
+      - name: Build Go MCP wrapper
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o ${{ matrix.go_artifact }}
 
-      - name: Rename binary (Windows)
+      - name: Rename Zig binary (Unix)
+        if: runner.os != 'Windows'
+        run: mv zig-out/bin/stump-core ${{ matrix.zig_artifact }}
+
+      - name: Rename Zig binary (Windows)
         if: runner.os == 'Windows'
-        run: mv zig-out/bin/stump.exe ${{ matrix.artifact }}
+        run: mv zig-out/bin/stump-core.exe ${{ matrix.zig_artifact }}
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact }}
+          files: |
+            ${{ matrix.zig_artifact }}
+            ${{ matrix.go_artifact }}

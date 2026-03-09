@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const stump = @import("stump");
 const types = stump.types;
 const tree = stump.tree;
@@ -197,6 +198,7 @@ test "JSON output with force flag note" {
 }
 
 test "file output mode" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 
     const temp_file = "/tmp/stump-test-file-output.json";

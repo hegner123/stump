@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const stump = @import("stump");
 const types = stump.types;
 const tree = stump.tree;
@@ -74,6 +75,7 @@ test "symlink following - follow_symlinks true" {
 }
 
 test "symlink cycle detection" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 
     var config = types.Config{
@@ -106,6 +108,7 @@ test "symlink cycle detection" {
 }
 
 test "symlink cycle detection with force flag" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 
     var config = types.Config{
@@ -143,6 +146,7 @@ test "symlink cycle detection with force flag" {
 }
 
 test "broken symlink handling" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 
     // Create a temporary broken symlink for testing

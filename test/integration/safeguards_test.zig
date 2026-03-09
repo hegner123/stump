@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const stump = @import("stump");
 const types = stump.types;
 const tree = stump.tree;
@@ -103,6 +104,7 @@ test "force flag adds note to output" {
 }
 
 test "permission denied error handling" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 
     // Create a directory with no read permissions for testing
@@ -172,6 +174,7 @@ test "fatal vs non-fatal error types" {
 }
 
 test "error collection in traversal" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 
     // Create temp structure with broken symlink
@@ -228,6 +231,7 @@ test "canonical path matching for large directory" {
 }
 
 test "safeguard with file output mode" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 
     // File output mode should bypass token limits but not large directory safeguard
